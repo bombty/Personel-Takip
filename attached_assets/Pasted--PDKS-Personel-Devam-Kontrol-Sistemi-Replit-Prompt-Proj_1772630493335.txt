@@ -1,0 +1,294 @@
+# PDKS - Personel Devam Kontrol Sistemi (Replit Prompt)
+
+## Proje Tanımı
+
+Parmak izi okuyucu cihazından alınan aylık ham verileri (Excel/CSV/Numbers) yükleyerek, personellerin giriş-çıkış takibini otomatik olarak analiz eden ve raporlayan bir **full-stack web uygulaması** oluştur.
+
+Uygulama Türkçe arayüze sahip olacak. Dil: Türkçe. Para birimi ve tarih formatı: Türkiye standartları.
+
+-----
+
+## Teknik Stack
+
+- **Frontend:** React + TypeScript + Tailwind CSS (veya Next.js App Router)
+- **Backend:** Node.js (Express veya Next.js API Routes)
+- **Veritabanı:** SQLite (Replit uyumlu) veya PostgreSQL
+- **Dosya İşleme:** `xlsx` (SheetJS) kütüphanesi ile Excel/CSV okuma
+- **Grafik:** Recharts veya Chart.js
+- **Export:** Excel rapor çıktısı için SheetJS (`xlsx`)
+
+-----
+
+## Parmak İzi Okuyucu Excel Veri Formatı (ÇOK ÖNEMLİ)
+
+Cihazdan gelen ham veri aşağıdaki sütun yapısına sahiptir. Bu yapıyı **birebir** destekle:
+
+|Sütun        |Açıklama                                   |Örnek                              |
+|-------------|-------------------------------------------|-----------------------------------|
+|**No**       |Satır numarası                             |1, 2, 3…                           |
+|**TMNo**     |Terminal numarası                          |1                                  |
+|**EnNo**     |Personel sicil numarası                    |1909, 34, 5                        |
+|**Name**     |Personel adı (küçük harf olabilir)         |sumru, sila, vusal, deniz, jennifer|
+|**GMNo**     |Grup numarası                              |1                                  |
+|**Mode**     |Mod                                        |1                                  |
+|**In/Out**   |Okutma tipi (her zaman “PİZİ” = Parmak İzi)|PİZİ                               |
+|**Antipass** |Mesai tipi                                 |Mesai                              |
+|**ProxyWork**|Proxy değeri (her zaman 0)                 |0                                  |
+|**DateTime** |Tam zaman damgası                          |2024-04-02 12:14:45                |
+
+### Kritik Bilgi: Veri Yapısı Mantığı
+
+- **Her satır tek bir “okutma” (punch) kaydıdır** — giriş mi çıkış mı olduğu belirtilmez
+- Aynı personel bir günde birden fazla okutma yapabilir (sabah giriş, öğlen çıkış, öğlen giriş, akşam çıkış vs.)
+- **Sistem okutmaları kronolojik sıralayıp çiftler halinde eşleştirmeli:** 1. okutma = giriş, 2. okutma = çıkış, 3. okutma = giriş, 4. okutma = çıkış…
+- Tek sayıda okutma varsa → eksik kayıt uyarısı vermeli
+
+### Desteklenmesi Gereken Dosya Formatları
+
+- `.xlsx` (Excel)
+- `.xls` (Eski Excel)
+- `.csv` (Virgülle ayrılmış)
+- `.numbers` dosyasını kullanıcı önceden Excel’e çevirmiş olabilir, ama mümkünse `.numbers` desteği de ekle
+
+### Sütun Otomatik Algılama
+
+Farklı cihaz markaları farklı sütun adları kullanabilir. Sistem şu anahtar kelimeleri otomatik algılasın:
+
+- **Personel Adı:** “Name”, “Ad”, “Personel”, “İsim”, “Çalışan”, “Sicil”
+- **Tarih/Saat:** “DateTime”, “Tarih”, “Date”, “Zaman”, “Time”
+- **Sicil No:** “EnNo”, “No”, “Sicil”, “ID”, “Numara”
+- **Giriş/Çıkış:** “In/Out”, “Giriş”, “Çıkış”, “Tip”
+
+Algılama başarısız olursa, kullanıcıya **sütun eşleştirme ekranı** göster.
+
+-----
+
+## Uygulama Sayfaları ve Özellikleri
+
+### 1. Dashboard (Ana Sayfa)
+
+Veri yüklendikten sonra genel bakış:
+
+- **Toplam Personel Sayısı**
+- **Ortalama Günlük Çalışma Süresi**
+- **Toplam Mesai (Fazla Çalışma) Saati**
+- **Toplam Eksik Çalışma Saati**
+- **Geç Kalma Sayısı (toplam gün)**
+- **Erken Çıkış Sayısı (toplam gün)**
+- **Tutarsızlık / Sorun Sayısı** (eksik okutma, çift giriş vs.)
+
+Dashboard’da ayrıca:
+
+- Personel bazlı **özet tablo** (sıralanabilir ve filtrelenebilir)
+- Kişiye tıklayınca **detay sayfasına** geçiş
+- **Mini bar chart:** personel bazlı çalışma saatleri karşılaştırması
+
+### 2. Veri Yükleme Sayfası
+
+- **Sürükle-bırak** dosya yükleme alanı
+- Dosya yüklendikten sonra:
+  - Otomatik sütun algılama + kullanıcıya onay/düzeltme imkanı
+  - **Veri önizleme tablosu** (ilk 10 satır)
+  - Doğrulama sonucu: kaç satır okundu, kaç personel tespit edildi, kaç hata var
+- “Raporu Oluştur” butonu
+
+### 3. Personel Detay Sayfası
+
+Bir personel seçildiğinde:
+
+**Özet Kartlar:**
+
+- Toplam çalışma süresi
+- Toplam mesai (fazla çalışma)
+- Toplam eksik saat
+- Geç kalma gün sayısı
+- Erken çıkış gün sayısı
+- Ortalama günlük çalışma
+
+**Günlük Detay Tablosu:**
+
+|Tarih|Gün|1. Giriş|1. Çıkış|2. Giriş|2. Çıkış|Toplam Çalışma|Mesai|Eksik|Durum|
+|-----|---|--------|--------|--------|--------|--------------|-----|-----|-----|
+
+Durum sütununda etiketler:
+
+- 🟢 **Normal** — sorunsuz
+- 🟡 **Geç** — tolerans üzeri geç kalma (kaç dakika olduğunu göster)
+- 🟠 **Erken Çıkış** — tolerans üzeri erken ayrılma
+- 🔴 **Eksik Kayıt** — tek okutma, çıkış yok vs.
+- 🔵 **Mesai** — fazla çalışma var
+- ⚪ **Hafta Sonu Çalışma** — tatil günü çalışma
+
+**Tutarsızlık / Uyarı Listesi:**
+
+- Eksik giriş veya çıkış kaydı
+- Aynı dakika içinde çoklu okutma (olağandışı)
+- Gece yarısı geçen çalışma
+- Hafta sonu çalışma
+- 3’ten fazla okutma (olağandışı)
+- Çok kısa çalışma süresi (örn. 30 dakikadan az)
+- Çok uzun çalışma süresi (örn. 16 saatten fazla — muhtemel hata)
+
+### 4. Ayarlar Sayfası
+
+Tüm mesai kuralları ve parametreleri buradan düzenlenebilmeli. Ayarlar değiştirildiğinde rapor otomatik yeniden hesaplansın.
+
+**Çalışma Saatleri:**
+
+- Mesai başlangıç saati (varsayılan: 08:30)
+- Mesai bitiş saati (varsayılan: 17:30)
+- Günlük toplam çalışma süresi — mola dahil (varsayılan: 540 dakika = 9 saat)
+- Mola süresi (varsayılan: 60 dakika) — net çalışmadan düşülür
+
+**Tolerans ve Eşikler:**
+
+- Mesai (fazla çalışma) eşiği: Kaç dakikadan sonra fazla mesai sayılır (varsayılan: 15 dakika)
+- Geç kalma toleransı: Kaç dakikaya kadar geç kalma sayılmaz (varsayılan: 5 dakika)
+- Erken çıkış toleransı: Kaç dakikaya kadar erken çıkış sayılmaz (varsayılan: 5 dakika)
+
+**Hafta Sonu / Tatil Ayarları:**
+
+- Haftalık iş günü sayısı (varsayılan: 5)
+- Tatil günleri seçimi (varsayılan: Cumartesi + Pazar)
+- Resmi tatil günleri ekleme imkanı (tarih listesi)
+
+**Çalışma Süresi Hesaplama Kuralları:**
+
+- Mola otomatik düşülsün mü? (varsayılan: Evet)
+- Gece vardiyası desteği (gece 00:00’ı geçen çalışma) (varsayılan: Hayır)
+- Minimum geçerli çalışma süresi (varsayılan: 30 dakika — altı hatalı sayılır)
+- Maksimum geçerli çalışma süresi (varsayılan: 960 dakika = 16 saat — üstü hatalı sayılır)
+
+### 5. Rapor Dışa Aktarma
+
+**Excel Rapor Çıktısı** — aşağıdaki sayfaları (sheet) içersin:
+
+**Sayfa 1: “Personel Özet”**
+
+|Personel|Sicil No|İş Günü|Toplam Çalışma|Ort. Günlük|Mesai|Eksik|Geç Kalma (gün)|Erken Çıkış (gün)|Sorun Sayısı|
+|--------|--------|-------|--------------|-----------|-----|-----|---------------|-----------------|------------|
+
+**Sayfa 2: “Günlük Detay”**
+Tüm personellerin tüm günlerinin detaylı tablosu.
+
+**Sayfa 3: “Tutarsızlıklar”**
+Tüm sorun ve uyarıların listesi: personel, tarih, gün, sorun açıklaması.
+
+-----
+
+## Hesaplama Mantığı (Algoritma Detayı)
+
+### Okutma Eşleştirme Algoritması
+
+```
+1. Her personel için, her gün için okutmaları kronolojik sırala
+2. Okutmaları çiftler halinde eşleştir:
+   - 1. okutma → GİRİŞ
+   - 2. okutma → ÇIKIŞ
+   - 3. okutma → GİRİŞ (tekrar)
+   - 4. okutma → ÇIKIŞ (tekrar)
+   ... devam eder
+3. Tek sayıda okutma varsa → son okutmanın çıkışı eksik → UYARI
+4. Aynı dakika içinde (<2 dakika arayla) birden fazla okutma → muhtemelen çift okutma → birini yoksay
+5. Toplam çalışma = Σ (her çıkış - giriş çifti)
+```
+
+### Günlük Çalışma Hesabı
+
+```
+Brüt Çalışma = Son Çıkış - İlk Giriş (basit mod)
+             VEYA
+             = Σ (Çıkış[i] - Giriş[i]) (çoklu giriş-çıkış modu)
+
+Net Çalışma = Brüt Çalışma - Mola Süresi
+
+Eğer Net Çalışma > Beklenen Günlük Çalışma + Mesai Eşiği:
+    Mesai = Net Çalışma - Beklenen Günlük Çalışma
+
+Eğer Net Çalışma < Beklenen Günlük Çalışma:
+    Eksik = Beklenen Günlük Çalışma - Net Çalışma
+```
+
+### Geç Kalma Hesabı
+
+```
+İlk Giriş Saati > Mesai Başlangıç + Geç Kalma Toleransı
+    → Geç Kalma = İlk Giriş - Mesai Başlangıç (dakika)
+```
+
+### Erken Çıkış Hesabı
+
+```
+Son Çıkış Saati < Mesai Bitiş - Erken Çıkış Toleransı
+    → Erken Çıkış = Mesai Bitiş - Son Çıkış (dakika)
+```
+
+-----
+
+## UI/UX Tasarım Gereksinimleri
+
+- **Koyu tema** (dark mode) varsayılan olsun — profesyonel ve göz yormayan
+- **Monospace font** veri tabloları için (JetBrains Mono veya benzeri)
+- Tablolar **sıralanabilir** olsun (sütun başlığına tıklayınca)
+- Tablolarda **arama/filtreleme** olsun
+- Renkli durum etiketleri (badge) kullan — kırmızı=sorun, yeşil=normal, sarı=mesai vs.
+- Responsive tasarım (mobil uyumlu)
+- Animasyonlar: sayfa geçişlerinde fade-in, tablo yüklenirken skeleton loader
+
+-----
+
+## Personel Listesi (Bu Firma İçin Referans)
+
+Sistemde yaklaşık 40+ personel var. İsimler parmak izi okuyucuda küçük harfle kayıtlı olabilir. Uygulama isimlerin ilk harflerini otomatik büyük harfe çevirsin (capitalize).
+
+Örnek personeller: Sumru, Sıla, Vusal, Deniz, Jennifer, Kadir, Sahra, Veysel, Onur, Sude, Berkan, Süleyman, Ömer, Yusuf, Yağız, Buğra, Eren, Ramazan, Arda, Berkay, Umut, Ahmet, İbrahim, Büşra, Furkan, Emir, Melih, Mine, Mürüvet, Seher, Aleyna, Şevval, Taha, Hülya, Neslihan, Dilara, Meriç, Damla, Nesibe, Demir, Ecrin, Esma
+
+-----
+
+## Ek Özellikler (Bonus)
+
+Eğer zaman kalırsa bunları da ekle:
+
+1. **Personel Yönetimi sayfası:** Personel ekle/düzenle/sil, departman atama
+1. **Departman bazlı raporlama:** Personelleri departmanlara ayır ve departman bazlı özet rapor
+1. **Aylık karşılaştırma:** Birden fazla ay yükleyip ay bazlı karşılaştırma grafiği
+1. **PDF rapor çıktısı:** Her personel için ayrı sayfalık PDF
+1. **Resmi tatil takvimi:** Türkiye resmi tatillerini otomatik tanısın
+1. **Bildirim/Uyarı sistemi:** Tutarsızlık sayısı belirli eşiği geçince kırmızı uyarı banner
+
+-----
+
+## Örnek Veri Yapısı (Test İçin)
+
+Eğer test verisi lazımsa, aşağıdaki formatta üret:
+
+```csv
+No,TMNo,EnNo,Name,GMNo,Mode,In/Out,Antipass,ProxyWork,DateTime
+1,1,1,sumru,1,1,PİZİ,Mesai,0,2026-02-02 08:25:33
+2,1,1,sumru,1,1,PİZİ,Mesai,0,2026-02-02 12:02:15
+3,1,1,sumru,1,1,PİZİ,Mesai,0,2026-02-02 12:58:40
+4,1,1,sumru,1,1,PİZİ,Mesai,0,2026-02-02 17:35:12
+5,1,34,sila,1,1,PİZİ,Mesai,0,2026-02-02 08:42:07
+6,1,34,sila,1,1,PİZİ,Mesai,0,2026-02-02 17:28:55
+7,1,1909,vusal,1,1,PİZİ,Mesai,0,2026-02-02 08:15:22
+8,1,1909,vusal,1,1,PİZİ,Mesai,0,2026-02-02 19:10:48
+```
+
+Bu örnekte:
+
+- Sumru: 4 okutma (sabah giriş, öğlen çıkış, öğlen giriş, akşam çıkış)
+- Sıla: 2 okutma (giriş + çıkış), ama geç kalmış
+- Vusal: 2 okutma ama uzun mesai yapmış
+
+-----
+
+## Başlarken
+
+1. Projeyi oluştur (React + Node.js veya Next.js)
+1. Önce **Ayarlar** sayfasını yap (parametreler burada tanımlanacak)
+1. Sonra **Veri Yükleme** sayfasını yap (Excel okuma + sütun algılama)
+1. Sonra **hesaplama motorunu** (processing engine) yap
+1. Sonra **Dashboard** ve **Personel Detay** sayfalarını yap
+1. Son olarak **Excel dışa aktarma** özelliğini ekle
+
+Her adımda test et ve çalıştığından emin ol.
