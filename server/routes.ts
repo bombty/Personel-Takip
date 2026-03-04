@@ -500,7 +500,7 @@ export async function registerRoutes(
       const records = await storage.getAttendanceRecordsByUpload(uploadRecord.id);
       const assignments = await storage.getWeeklyAssignments();
       const schedules = await storage.getWorkSchedules();
-      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules);
+      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules, allEmployees);
 
       res.json({
         uploadId: uploadRecord.id,
@@ -529,7 +529,7 @@ export async function registerRoutes(
       for (const emp of allEmployees) { employeeIdMap.set(emp.id, emp.enNo); }
       const assignments = await storage.getWeeklyAssignments();
       const schedules = await storage.getWorkSchedules();
-      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules);
+      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules, allEmployees);
       res.json({ summaries });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -548,13 +548,15 @@ export async function registerRoutes(
       for (const emp of allEmployees) { employeeIdMap.set(emp.id, emp.enNo); }
       const assignments = await storage.getWeeklyAssignments();
       const schedules = await storage.getWorkSchedules();
-      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules);
+      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules, allEmployees);
 
       const wb = XLSX.utils.book_new();
 
       const summaryData = summaries.map(s => ({
         "Personel": s.name,
         "Sicil No": s.enNo,
+        "Tip": s.employmentType === "full_time" ? "Tam Zamanli" : "Yari Zamanli",
+        "Haftalik Saat": s.weeklyHoursExpected,
         "Is Gunu": s.workDays,
         "Toplam Calisma (dk)": s.totalWorkMinutes,
         "Ort. Gunluk (dk)": s.avgDailyMinutes,
@@ -565,6 +567,9 @@ export async function registerRoutes(
         "Off Gunleri": s.offDays,
         "Izin Gunleri": s.leaveDays,
         "Sorun Sayisi": s.issueCount,
+        "Aylik Toplam (saat)": s.monthlyTotalHours,
+        "Aylik Beklenen (saat)": s.monthlyExpectedHours,
+        "Performans (%)": s.performancePercent,
       }));
       const ws1 = XLSX.utils.json_to_sheet(summaryData);
       XLSX.utils.book_append_sheet(wb, ws1, "Personel Ozet");

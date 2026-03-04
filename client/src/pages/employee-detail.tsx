@@ -5,8 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Clock, TrendingUp, TrendingDown, Timer, LogOut, AlertTriangle, CalendarOff, CalendarCheck, Moon } from "lucide-react";
-import type { EmployeeSummary, DailyReport } from "@shared/schema";
+import { ArrowLeft, Clock, TrendingUp, TrendingDown, Timer, LogOut, AlertTriangle, CalendarOff, CalendarCheck, Moon, Target, Briefcase } from "lucide-react";
+import type { EmployeeSummary, DailyReport, WeeklyBreakdown } from "@shared/schema";
 import { useState, useMemo } from "react";
 import {
   Table,
@@ -22,6 +22,10 @@ function formatMinutes(m: number): string {
   const min = m % 60;
   if (h === 0) return `${min}dk`;
   return `${h}s ${min}dk`;
+}
+
+function formatHours(h: number): string {
+  return `${h.toFixed(1)}s`;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -108,8 +112,17 @@ export default function EmployeeDetail() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-bold" data-testid="text-employee-name">{employee.name}</h1>
-            <p className="text-sm text-muted-foreground">Sicil No: {employee.enNo} {employee.department && `| ${employee.department}`}</p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold" data-testid="text-employee-name">{employee.name}</h1>
+              <Badge variant={employee.employmentType === "full_time" ? "default" : "secondary"} data-testid="badge-employment-type">
+                {employee.employmentType === "full_time" ? "Tam Zamanli" : "Yari Zamanli"}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Sicil No: {employee.enNo}
+              {employee.department && ` | ${employee.department}`}
+              {` | Haftalik: ${employee.weeklyHoursExpected} saat`}
+            </p>
           </div>
         </div>
         <Select value={selectedUploadId || String(activeUploadId || "")} onValueChange={setSelectedUploadId}>
@@ -126,7 +139,7 @@ export default function EmployeeDetail() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
         <Card>
           <CardContent className="p-3">
             <Clock className="h-4 w-4 text-primary mb-1" />
@@ -157,33 +170,139 @@ export default function EmployeeDetail() {
         </Card>
         <Card>
           <CardContent className="p-3">
-            <LogOut className="h-4 w-4 text-orange-500 mb-1" />
-            <p className="text-xs text-muted-foreground">Erken Cikis</p>
-            <p className="text-lg font-bold font-mono">{employee.earlyLeaveDays} gun</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3">
-            <Clock className="h-4 w-4 text-primary mb-1" />
-            <p className="text-xs text-muted-foreground">Ort. Gunluk</p>
-            <p className="text-lg font-bold font-mono">{formatMinutes(employee.avgDailyMinutes)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3">
-            <CalendarOff className="h-4 w-4 text-gray-400 mb-1" />
-            <p className="text-xs text-muted-foreground">Off Gunleri</p>
-            <p className="text-lg font-bold font-mono" data-testid="text-off-days">{employee.offDays}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-3">
-            <CalendarCheck className="h-4 w-4 text-cyan-500 mb-1" />
-            <p className="text-xs text-muted-foreground">Izin Gunleri</p>
-            <p className="text-lg font-bold font-mono" data-testid="text-leave-days">{employee.leaveDays}</p>
+            <Target className="h-4 w-4 mb-1" style={{ color: employee.performancePercent >= 90 ? "#10b981" : employee.performancePercent >= 70 ? "#f59e0b" : "#ef4444" }} />
+            <p className="text-xs text-muted-foreground">Performans</p>
+            <p className="text-lg font-bold font-mono" data-testid="text-performance">%{employee.performancePercent}</p>
           </CardContent>
         </Card>
       </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Briefcase className="h-4 w-4 text-primary" />
+              Aylik Ozet
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Toplam Calisma</span>
+                <span className="font-mono font-semibold" data-testid="text-monthly-total">{formatHours(employee.monthlyTotalHours)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Beklenen Calisma</span>
+                <span className="font-mono font-semibold" data-testid="text-monthly-expected">{formatHours(employee.monthlyExpectedHours)}</span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${employee.performancePercent >= 90 ? "bg-emerald-500" : employee.performancePercent >= 70 ? "bg-amber-500" : "bg-red-500"}`}
+                  style={{ width: `${Math.min(100, employee.performancePercent)}%` }}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground">Is Gunu</p>
+                  <p className="font-mono font-semibold">{employee.workDays}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground">Off</p>
+                  <p className="font-mono font-semibold" data-testid="text-off-days">{employee.offDays}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground">Izin</p>
+                  <p className="font-mono font-semibold" data-testid="text-leave-days">{employee.leaveDays}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Clock className="h-4 w-4 text-primary" />
+              Detay Bilgileri
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Ort. Gunluk</span>
+                <span className="font-mono font-semibold">{formatMinutes(employee.avgDailyMinutes)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Erken Cikis</span>
+                <span className="font-mono font-semibold">{employee.earlyLeaveDays} gun</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Toplam Mesai</span>
+                <span className="font-mono font-semibold text-emerald-500">{formatMinutes(employee.totalOvertimeMinutes)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Toplam Eksik</span>
+                <span className="font-mono font-semibold text-amber-500">{formatMinutes(employee.totalDeficitMinutes)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Sorun Sayisi</span>
+                <span className="font-mono font-semibold">{employee.issueCount}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {employee.weeklyBreakdown && employee.weeklyBreakdown.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Haftalik Calisma Ozeti</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Hafta</TableHead>
+                    <TableHead className="font-mono">Is Gunu</TableHead>
+                    <TableHead className="font-mono">Calisma</TableHead>
+                    <TableHead className="font-mono">Beklenen</TableHead>
+                    <TableHead className="font-mono">Mesai</TableHead>
+                    <TableHead className="font-mono">Eksik</TableHead>
+                    <TableHead>Durum</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {employee.weeklyBreakdown.map((w: WeeklyBreakdown, i: number) => {
+                    const isOver = w.totalMinutes >= w.expectedMinutes;
+                    return (
+                      <TableRow key={i} data-testid={`row-week-${w.weekStart}`}>
+                        <TableCell className="font-mono text-xs">
+                          {w.weekStart.slice(5)} ~ {w.weekEnd.slice(5)}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{w.workDays}</TableCell>
+                        <TableCell className="font-mono text-xs">{formatMinutes(w.totalMinutes)}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{formatMinutes(w.expectedMinutes)}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {w.overtimeMinutes > 0 ? <span className="text-emerald-500">{formatMinutes(w.overtimeMinutes)}</span> : "-"}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {w.deficitMinutes > 0 ? <span className="text-amber-500">{formatMinutes(w.deficitMinutes)}</span> : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={isOver ? "default" : "destructive"} className="text-[10px]">
+                            {isOver ? "Tamam" : "Eksik"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-2">

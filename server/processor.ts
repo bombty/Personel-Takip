@@ -1,4 +1,4 @@
-import type { AttendanceRecord, DailyReport, EmployeeSummary, Holiday, Leave, WeeklyAssignment, WorkSchedule } from "@shared/schema";
+import type { AttendanceRecord, DailyReport, EmployeeSummary, Holiday, Leave, WeeklyAssignment, WorkSchedule, WeeklyBreakdown, Employee } from "@shared/schema";
 
 const TURKISH_DAYS = ["Pazar", "Pazartesi", "Sali", "Carsamba", "Persembe", "Cuma", "Cumartesi"];
 const DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
@@ -38,6 +38,12 @@ function getMonday(dateStr: string): string {
   const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
+  return localDateKey(d);
+}
+
+function getSunday(mondayStr: string): string {
+  const d = new Date(mondayStr + "T00:00:00");
+  d.setDate(d.getDate() + 6);
   return localDateKey(d);
 }
 
@@ -87,7 +93,7 @@ function getScheduleForDay(
   assignments: WeeklyAssignment[],
   schedulesMap: Map<number, WorkSchedule>,
   defaultSchedule: ScheduleInfo
-): { schedule: ScheduleInfo; isOff: boolean } {
+): { schedule: ScheduleInfo; isOff: boolean; hasAssignment: boolean } {
   const monday = getMonday(dateKey);
   const dayKey = DAY_KEYS[dayOfWeek];
 
@@ -96,18 +102,18 @@ function getScheduleForDay(
   );
 
   if (!assignment) {
-    return { schedule: defaultSchedule, isOff: false };
+    return { schedule: defaultSchedule, isOff: false, hasAssignment: false };
   }
 
   const val = (assignment as any)[dayKey] as string | null;
-  if (!val) return { schedule: defaultSchedule, isOff: false };
-  if (val.toUpperCase() === "OFF") return { schedule: defaultSchedule, isOff: true };
+  if (!val) return { schedule: defaultSchedule, isOff: false, hasAssignment: false };
+  if (val.toUpperCase() === "OFF") return { schedule: defaultSchedule, isOff: true, hasAssignment: true };
 
   const scheduleId = parseInt(val);
-  if (isNaN(scheduleId)) return { schedule: defaultSchedule, isOff: false };
+  if (isNaN(scheduleId)) return { schedule: defaultSchedule, isOff: false, hasAssignment: false };
 
   const ws = schedulesMap.get(scheduleId);
-  if (!ws) return { schedule: defaultSchedule, isOff: false };
+  if (!ws) return { schedule: defaultSchedule, isOff: false, hasAssignment: false };
 
   const startMin = timeStringToMinutes(ws.startTime);
   const endMin = timeStringToMinutes(ws.endTime);
@@ -119,6 +125,7 @@ function getScheduleForDay(
   return {
     schedule: { startMinutes: startMin, endMinutes: endMin, breakMinutes: brk, expectedNetWork: expectedNet, name: ws.name, crossesMidnight },
     isOff: false,
+    hasAssignment: true,
   };
 }
 
@@ -184,6 +191,50 @@ function buildPairsFromPunches(filteredPunches: Date[]): { pairs: { in: string; 
   return { pairs, workMinutes, breakDeducted };
 }
 
+function buildWeeklyBreakdown(dailyReports: DailyReport[], weeklyExpectedMinutes: number): WeeklyBreakdown[] {
+  const weekMap = new Map<string, DailyReport[]>();
+
+  for (const report of dailyReports) {
+    const monday = getMonday(report.date);
+    if (!weekMap.has(monday)) {
+      weekMap.set(monday, []);
+    }
+    weekMap.get(monday)!.push(report);
+  }
+
+  const breakdown: WeeklyBreakdown[] = [];
+  const sortedWeeks = Array.from(weekMap.keys()).sort();
+
+  for (const monday of sortedWeeks) {
+    const reports = weekMap.get(monday)!;
+    const sunday = getSunday(monday);
+    const workDays = reports.filter(r => !r.isOffDay && !r.isOnLeave && r.punchCount >= 2).length;
+    const totalMinutes = reports.reduce((sum, r) => sum + r.netWorkMinutes, 0);
+    const overtimeMinutes = Math.max(0, totalMinutes - weeklyExpectedMinutes);
+    const deficitMinutes = Math.max(0, weeklyExpectedMinutes - totalMinutes);
+
+    breakdown.push({
+      weekStart: monday,
+      weekEnd: sunday,
+      totalMinutes: Math.round(totalMinutes),
+      expectedMinutes: weeklyExpectedMinutes,
+      overtimeMinutes: Math.round(overtimeMinutes),
+      deficitMinutes: Math.round(deficitMinutes),
+      workDays,
+    });
+  }
+
+  return breakdown;
+}
+
+function calculateMonthlyExpectedHours(
+  dailyReports: DailyReport[],
+  dailyExpectedMinutes: number
+): number {
+  const workDays = dailyReports.filter(r => !r.isOffDay && !r.isOnLeave).length;
+  return Math.round((workDays * dailyExpectedMinutes) / 60 * 10) / 10;
+}
+
 export function processAttendanceData(
   records: AttendanceRecord[],
   settingsMap: Record<string, string>,
@@ -191,7 +242,8 @@ export function processAttendanceData(
   leavesList: Leave[] = [],
   employeeIdMap: Map<number, number> = new Map(),
   assignments: WeeklyAssignment[] = [],
-  schedules: WorkSchedule[] = []
+  schedules: WorkSchedule[] = [],
+  employeesList: Employee[] = []
 ): EmployeeSummary[] {
   const workStart = timeStringToMinutes(settingsMap.workStartTime || "08:00");
   const workEnd = timeStringToMinutes(settingsMap.workEndTime || "00:00");
@@ -203,6 +255,9 @@ export function processAttendanceData(
   const autoDeductBreak = settingsMap.autoDeductBreak !== "false";
   const minValidWork = parseInt(settingsMap.minValidWorkMinutes || "30");
   const maxValidWork = parseInt(settingsMap.maxValidWorkMinutes || "960");
+  const fullTimeWeeklyHours = parseInt(settingsMap.fullTimeWeeklyHours || "45");
+  const partTimeWeeklyHours = parseInt(settingsMap.partTimeWeeklyHours || "30");
+  const dailyOvertimeThreshold = parseInt(settingsMap.dailyOvertimeThresholdMinutes || "660");
 
   const crossesMidnightDefault = workEnd <= workStart && workEnd !== 0;
   const totalDefault = crossesMidnightDefault ? (1440 - workStart + workEnd) : (workEnd === 0 ? (1440 - workStart) : (workEnd - workStart));
@@ -225,6 +280,11 @@ export function processAttendanceData(
   const enNoToEmployeeId = new Map<number, number>();
   for (const [empId, enNo] of employeeIdMap) {
     enNoToEmployeeId.set(enNo, empId);
+  }
+
+  const employeeByEnNo = new Map<number, Employee>();
+  for (const emp of employeesList) {
+    employeeByEnNo.set(emp.enNo, emp);
   }
 
   const holidayDates = new Map<string, Holiday>();
@@ -251,10 +311,17 @@ export function processAttendanceData(
       .join(" ");
 
     const empId = enNoToEmployeeId.get(enNo);
+    const empRecord = employeeByEnNo.get(enNo);
+    const employmentType = empRecord?.employmentType || "full_time";
+    const weeklyHours = empRecord?.weeklyHours ||
+      (employmentType === "full_time" ? fullTimeWeeklyHours : partTimeWeeklyHours);
+    const weeklyExpectedMinutes = weeklyHours * 60;
 
     const empAssignments = empId
       ? assignments.filter(a => a.employeeId === empId)
       : [];
+
+    const hasAnyAssignment = empAssignments.length > 0;
 
     const byWorkDay = new Map<string, { punches: Date[]; hasNightCrossing: boolean }>();
     for (const rec of data.records) {
@@ -297,9 +364,9 @@ export function processAttendanceData(
       const leaveInfo = leaveLookup.get(leaveKey);
       const isOnLeave = !!leaveInfo;
 
-      const { schedule, isOff } = empId
+      const { schedule, isOff, hasAssignment } = empId
         ? getScheduleForDay(empId, dateKey, dayOfWeek, empAssignments, schedulesMap, defaultSchedule)
-        : { schedule: defaultSchedule, isOff: false };
+        : { schedule: defaultSchedule, isOff: false, hasAssignment: false };
 
       let salaryMultiplier = 1;
 
@@ -381,7 +448,7 @@ export function processAttendanceData(
         const firstPunchHour = firstPunch.getHours();
         const firstPunchMin = minutesSinceMidnight(firstPunch);
 
-        if (firstPunchHour >= NIGHT_CUTOFF_HOUR) {
+        if (hasAssignment && firstPunchHour >= NIGHT_CUTOFF_HOUR) {
           if (firstPunchMin > schedule.startMinutes + lateTolerance) {
             lateMinutes = firstPunchMin - schedule.startMinutes;
             statuses.push("Gec");
@@ -389,7 +456,7 @@ export function processAttendanceData(
           }
         }
 
-        if (punchCount >= 2) {
+        if (hasAssignment && punchCount >= 2) {
           const lastPunch = filteredPunches[filteredPunches.length - 1];
           const lastPunchHour = lastPunch.getHours();
           const lastPunchMin = minutesSinceMidnight(lastPunch);
@@ -414,10 +481,15 @@ export function processAttendanceData(
           }
         }
 
-        if (netWork > schedule.expectedNetWork + overtimeThreshold) {
+        if (netWork > dailyOvertimeThreshold) {
           overtimeMin = netWork - schedule.expectedNetWork;
           statuses.push("Mesai");
-        } else if (netWork < schedule.expectedNetWork && punchCount >= 2 && punchCount % 2 === 0) {
+        } else if (hasAssignment && netWork > schedule.expectedNetWork + overtimeThreshold) {
+          overtimeMin = netWork - schedule.expectedNetWork;
+          statuses.push("Mesai");
+        }
+
+        if (hasAssignment && netWork < schedule.expectedNetWork && punchCount >= 2 && punchCount % 2 === 0) {
           deficitMin = schedule.expectedNetWork - netWork;
         }
       }
@@ -465,20 +537,44 @@ export function processAttendanceData(
       });
     }
 
+    const weeklyBreakdown = buildWeeklyBreakdown(dailyReports, weeklyExpectedMinutes);
+
+    const totalWeeklyOvertime = weeklyBreakdown.reduce((sum, w) => sum + w.overtimeMinutes, 0);
+    const totalWeeklyDeficit = weeklyBreakdown.reduce((sum, w) => sum + w.deficitMinutes, 0);
+
+    const monthlyTotalHours = Math.round(totalWorkMin / 60 * 10) / 10;
+
+    const netWorkTotal = dailyReports.reduce((sum, r) => sum + r.netWorkMinutes, 0);
+    const monthlyTotalNetHours = Math.round(netWorkTotal / 60 * 10) / 10;
+
+    const dailyExpectedForMonthly = hasAnyAssignment ? (weeklyExpectedMinutes / 6) : dailyWorkMinutes;
+    const monthlyExpectedHours = calculateMonthlyExpectedHours(dailyReports, dailyExpectedForMonthly);
+
+    const performancePercent = monthlyExpectedHours > 0
+      ? Math.round((monthlyTotalNetHours / monthlyExpectedHours) * 100)
+      : 0;
+
     summaries.push({
       enNo,
       name: capitalizedName,
+      department: empRecord?.department || undefined,
+      employmentType,
+      weeklyHoursExpected: weeklyHours,
       workDays,
       totalWorkMinutes: Math.round(totalWorkMin),
       avgDailyMinutes: workDays > 0 ? Math.round(totalWorkMin / workDays) : 0,
-      totalOvertimeMinutes: Math.round(totalOvertimeMin),
-      totalDeficitMinutes: Math.round(totalDeficitMin),
+      totalOvertimeMinutes: Math.max(Math.round(totalOvertimeMin), totalWeeklyOvertime),
+      totalDeficitMinutes: Math.max(Math.round(totalDeficitMin), totalWeeklyDeficit),
       lateDays,
       earlyLeaveDays,
       issueCount,
       offDays,
       leaveDays,
       dailyReports,
+      weeklyBreakdown,
+      monthlyTotalHours,
+      monthlyExpectedHours,
+      performancePercent,
     });
   }
 

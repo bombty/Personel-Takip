@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Link } from "wouter";
 import { Users, ChevronRight, Plus, Pencil, Trash2 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee } from "@shared/schema";
 
-const emptyForm = { name: "", enNo: 0, department: "", position: "", phone: "", hireDate: "" };
+const emptyForm = { name: "", enNo: 0, department: "", position: "", phone: "", hireDate: "", employmentType: "full_time" as string, weeklyHours: 45 };
 
 export default function EmployeesPage() {
   const [search, setSearch] = useState("");
@@ -66,7 +67,7 @@ export default function EmployeesPage() {
 
   const openEdit = (e: Employee) => {
     setEditId(e.id);
-    setForm({ name: e.name, enNo: e.enNo, department: e.department || "", position: e.position || "", phone: e.phone || "", hireDate: e.hireDate || "" });
+    setForm({ name: e.name, enNo: e.enNo, department: e.department || "", position: e.position || "", phone: e.phone || "", hireDate: e.hireDate || "", employmentType: e.employmentType || "full_time", weeklyHours: e.weeklyHours || 45 });
     setEditOpen(true);
   };
 
@@ -109,6 +110,35 @@ export default function EmployeesPage() {
         <div>
           <Label>Ise Baslama</Label>
           <Input type="date" value={form.hireDate} onChange={e => setForm({ ...form, hireDate: e.target.value })} data-testid="input-emp-hire" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>Calisma Tipi</Label>
+          <Select
+            value={form.employmentType}
+            onValueChange={(val) => {
+              const newWeekly = val === "full_time" ? 45 : 30;
+              setForm({ ...form, employmentType: val, weeklyHours: newWeekly });
+            }}
+          >
+            <SelectTrigger data-testid="select-emp-type">
+              <SelectValue placeholder="Calisma tipi secin" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="full_time">Full-time</SelectItem>
+              <SelectItem value="part_time">Part-time</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Haftalik Calisma Saati</Label>
+          <Input
+            type="number"
+            value={form.weeklyHours || ""}
+            onChange={e => setForm({ ...form, weeklyHours: parseInt(e.target.value) || 0 })}
+            data-testid="input-emp-weekly-hours"
+          />
         </div>
       </div>
     </div>
@@ -176,8 +206,11 @@ export default function EmployeesPage() {
                     </div>
                     <div>
                       <p className="font-medium">{capitalName}</p>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs text-muted-foreground font-mono">Sicil: {e.enNo}</span>
+                        <Badge variant={e.employmentType === "part_time" ? "outline" : "default"} className="text-xs" data-testid={`badge-type-${e.enNo}`}>
+                          {e.employmentType === "part_time" ? "PT" : "FT"}
+                        </Badge>
                         {e.department && <Badge variant="secondary" className="text-xs">{e.department}</Badge>}
                         {e.position && <span className="text-xs text-muted-foreground">{e.position}</span>}
                       </div>

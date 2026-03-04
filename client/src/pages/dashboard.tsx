@@ -17,6 +17,8 @@ import {
   CalendarOff,
   CalendarCheck,
   Download,
+  Target,
+  Calendar,
 } from "lucide-react";
 import {
   BarChart,
@@ -26,8 +28,9 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  Legend,
 } from "recharts";
-import type { EmployeeSummary } from "@shared/schema";
+import type { EmployeeSummary, WeeklyBreakdown } from "@shared/schema";
 import { Input } from "@/components/ui/input";
 import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -40,11 +43,31 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+const MONTHS = [
+  { value: "all", label: "Tum Aylar" },
+  { value: "1", label: "Ocak" },
+  { value: "2", label: "Subat" },
+  { value: "3", label: "Mart" },
+  { value: "4", label: "Nisan" },
+  { value: "5", label: "Mayis" },
+  { value: "6", label: "Haziran" },
+  { value: "7", label: "Temmuz" },
+  { value: "8", label: "Agustos" },
+  { value: "9", label: "Eylul" },
+  { value: "10", label: "Ekim" },
+  { value: "11", label: "Kasim" },
+  { value: "12", label: "Aralik" },
+];
+
 function formatMinutes(m: number): string {
   const h = Math.floor(m / 60);
   const min = m % 60;
   if (h === 0) return `${min}dk`;
   return `${h}s ${min}dk`;
+}
+
+function formatHours(h: number): string {
+  return `${h.toFixed(1)}s`;
 }
 
 function StatCard({
@@ -92,6 +115,8 @@ export default function Dashboard() {
   const [sortKey, setSortKey] = useState<keyof EmployeeSummary>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [selectedUploadId, setSelectedUploadId] = useState<string>("");
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [selectedEmployee, setSelectedEmployee] = useState<string>("all");
   const { isYonetim } = useAuth();
 
   const { data: uploads } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
@@ -107,7 +132,50 @@ export default function Dashboard() {
     enabled: !!activeUploadId,
   });
 
-  const summaries = reportData?.summaries || [];
+  const allSummaries = reportData?.summaries || [];
+
+  const filteredByMonth = useMemo(() => {
+    if (selectedMonth === "all") return allSummaries;
+    const month = parseInt(selectedMonth);
+    return allSummaries.map(s => {
+      const filteredReports = s.dailyReports.filter(d => {
+        const m = parseInt(d.date.split("-")[1]);
+        return m === month;
+      });
+      const workDays = filteredReports.filter(r => !r.isOffDay && !r.isOnLeave && r.punchCount >= 2).length;
+      const totalWorkMinutes = filteredReports.reduce((sum, r) => sum + r.totalWorkMinutes, 0);
+      const totalOvertimeMinutes = filteredReports.reduce((sum, r) => sum + r.overtimeMinutes, 0);
+      const totalDeficitMinutes = filteredReports.reduce((sum, r) => sum + r.deficitMinutes, 0);
+      const lateDays = filteredReports.filter(r => r.status.includes("Gec")).length;
+      const earlyLeaveDays = filteredReports.filter(r => r.status.includes("Erken Cikis")).length;
+      const issueCount = filteredReports.filter(r => r.status.some(st =>
+        ["Tek Okutma", "Eksik Okutma", "Coklu Okutma", "Eksik Kayit", "Cok Kisa", "Cok Uzun"].includes(st)
+      )).length;
+      const offDays = filteredReports.filter(r => r.isOffDay).length;
+      const leaveDays = filteredReports.filter(r => r.isOnLeave).length;
+      return {
+        ...s,
+        dailyReports: filteredReports,
+        workDays,
+        totalWorkMinutes: Math.round(totalWorkMinutes),
+        avgDailyMinutes: workDays > 0 ? Math.round(totalWorkMinutes / workDays) : 0,
+        totalOvertimeMinutes: Math.round(totalOvertimeMinutes),
+        totalDeficitMinutes: Math.round(totalDeficitMinutes),
+        lateDays,
+        earlyLeaveDays,
+        issueCount,
+        offDays,
+        leaveDays,
+        monthlyTotalHours: Math.round(totalWorkMinutes / 60 * 10) / 10,
+      };
+    });
+  }, [allSummaries, selectedMonth]);
+
+  const summaries = useMemo(() => {
+    if (selectedEmployee === "all") return filteredByMonth;
+    const enNo = parseInt(selectedEmployee);
+    return filteredByMonth.filter(s => s.enNo === enNo);
+  }, [filteredByMonth, selectedEmployee]);
 
   const stats = useMemo(() => {
     if (summaries.length === 0) return null;
@@ -121,7 +189,10 @@ export default function Dashboard() {
     const totalIssues = summaries.reduce((s, e) => s + e.issueCount, 0);
     const totalOff = summaries.reduce((s, e) => s + e.offDays, 0);
     const totalLeave = summaries.reduce((s, e) => s + e.leaveDays, 0);
-    return { totalPersonnel, totalWork, avgDaily, totalOvertime, totalDeficit, totalLate, totalEarlyLeave, totalIssues, totalOff, totalLeave };
+    const avgPerformance = summaries.reduce((s, e) => s + e.performancePercent, 0) / totalPersonnel;
+    const totalMonthlyHours = summaries.reduce((s, e) => s + e.monthlyTotalHours, 0);
+    const totalExpectedHours = summaries.reduce((s, e) => s + e.monthlyExpectedHours, 0);
+    return { totalPersonnel, totalWork, avgDaily, totalOvertime, totalDeficit, totalLate, totalEarlyLeave, totalIssues, totalOff, totalLeave, avgPerformance, totalMonthlyHours, totalExpectedHours };
   }, [summaries]);
 
   const filteredSummaries = useMemo(() => {
@@ -146,6 +217,27 @@ export default function Dashboard() {
       calisma: Math.round(s.avgDailyMinutes / 60 * 10) / 10,
       mesai: Math.round(s.totalOvertimeMinutes / 60 * 10) / 10,
     }));
+  }, [summaries]);
+
+  const weeklyChartData = useMemo(() => {
+    if (summaries.length === 0) return [];
+    const allWeeks = new Map<string, { totalMinutes: number; expectedMinutes: number; count: number }>();
+    for (const s of summaries) {
+      for (const w of s.weeklyBreakdown) {
+        const existing = allWeeks.get(w.weekStart) || { totalMinutes: 0, expectedMinutes: 0, count: 0 };
+        existing.totalMinutes += w.totalMinutes;
+        existing.expectedMinutes += w.expectedMinutes;
+        existing.count++;
+        allWeeks.set(w.weekStart, existing);
+      }
+    }
+    return Array.from(allWeeks.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([week, data]) => ({
+        week: week.slice(5),
+        calisma: Math.round(data.totalMinutes / data.count / 60 * 10) / 10,
+        beklenen: Math.round(data.expectedMinutes / data.count / 60 * 10) / 10,
+      }));
   }, [summaries]);
 
   function handleSort(key: keyof EmployeeSummary) {
@@ -200,9 +292,9 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">Dashboard</h1>
           <p className="text-sm text-muted-foreground">Personel devam durumu genel gorunum</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <Select value={selectedUploadId || String(activeUploadId || "")} onValueChange={setSelectedUploadId}>
-            <SelectTrigger className="w-[260px]" data-testid="select-upload">
+            <SelectTrigger className="w-[220px]" data-testid="select-upload">
               <SelectValue placeholder="Yukleme sec..." />
             </SelectTrigger>
             <SelectContent>
@@ -210,6 +302,29 @@ export default function Dashboard() {
                 <SelectItem key={u.id} value={String(u.id)}>
                   {u.fileName} ({u.totalRecords} kayit)
                 </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="w-[140px]" data-testid="select-month">
+              <Calendar className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
+              <SelectValue placeholder="Ay sec..." />
+            </SelectTrigger>
+            <SelectContent>
+              {MONTHS.map(m => (
+                <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
+            <SelectTrigger className="w-[180px]" data-testid="select-employee-filter">
+              <Users className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
+              <SelectValue placeholder="Personel sec..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tum Personel</SelectItem>
+              {allSummaries.map(s => (
+                <SelectItem key={s.enNo} value={String(s.enNo)}>{s.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -224,54 +339,97 @@ export default function Dashboard() {
       </div>
 
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <StatCard title="Personel" value={stats.totalPersonnel} icon={Users} />
-          <StatCard title="Ort. Gunluk" value={formatMinutes(Math.round(stats.avgDaily))} icon={Clock} />
-          <StatCard title="Toplam Mesai" value={formatMinutes(stats.totalOvertime)} icon={TrendingUp} variant="success" />
-          <StatCard title="Toplam Eksik" value={formatMinutes(stats.totalDeficit)} icon={TrendingDown} variant="warning" />
-          <StatCard title="Gec Kalma" value={`${stats.totalLate} gun`} icon={Timer} variant="warning" />
-          <StatCard title="Erken Cikis" value={`${stats.totalEarlyLeave} gun`} icon={LogOut} variant="warning" />
-          <StatCard title="Off Gunleri" value={stats.totalOff} icon={CalendarOff} />
-          <StatCard title="Izin Gunleri" value={stats.totalLeave} icon={CalendarCheck} />
-          <StatCard title="Sorun Sayisi" value={stats.totalIssues} icon={AlertTriangle} variant="danger" />
-          <StatCard title="Toplam Calisma" value={formatMinutes(stats.totalWork)} icon={BarChart3} />
-        </div>
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <StatCard title="Personel" value={stats.totalPersonnel} icon={Users} />
+            <StatCard title="Ort. Gunluk" value={formatMinutes(Math.round(stats.avgDaily))} icon={Clock} />
+            <StatCard title="Toplam Mesai" value={formatMinutes(stats.totalOvertime)} icon={TrendingUp} variant="success" />
+            <StatCard title="Toplam Eksik" value={formatMinutes(stats.totalDeficit)} icon={TrendingDown} variant="warning" />
+            <StatCard title="Gec Kalma" value={`${stats.totalLate} gun`} icon={Timer} variant="warning" />
+            <StatCard title="Erken Cikis" value={`${stats.totalEarlyLeave} gun`} icon={LogOut} variant="warning" />
+            <StatCard title="Off Gunleri" value={stats.totalOff} icon={CalendarOff} />
+            <StatCard title="Izin Gunleri" value={stats.totalLeave} icon={CalendarCheck} />
+            <StatCard title="Sorun Sayisi" value={stats.totalIssues} icon={AlertTriangle} variant="danger" />
+            <StatCard
+              title="Performans"
+              value={`%${Math.round(stats.avgPerformance)}`}
+              icon={Target}
+              variant={stats.avgPerformance >= 90 ? "success" : stats.avgPerformance >= 70 ? "warning" : "danger"}
+              description={`${formatHours(stats.totalMonthlyHours)} / ${formatHours(stats.totalExpectedHours)}`}
+            />
+          </div>
+        </>
       )}
 
-      {chartData.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Personel Bazli Ortalama Gunluk Calisma (saat)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                    angle={-45}
-                    textAnchor="end"
-                    height={60}
-                  />
-                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "6px",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Bar dataKey="calisma" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} name="Calisma (s)" />
-                  <Bar dataKey="mesai" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} name="Mesai (s)" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <div className="grid gap-6 md:grid-cols-2">
+        {chartData.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Personel Bazli Ort. Gunluk Calisma (saat)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                      angle={-45}
+                      textAnchor="end"
+                      height={60}
+                    />
+                    <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "6px",
+                        fontSize: 12,
+                      }}
+                    />
+                    <Bar dataKey="calisma" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} name="Calisma (s)" />
+                    <Bar dataKey="mesai" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} name="Mesai (s)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {weeklyChartData.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Haftalik Calisma Performansi (saat)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={weeklyChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis
+                      dataKey="week"
+                      tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    />
+                    <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--card))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "6px",
+                        fontSize: 12,
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="calisma" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} name="Ort. Calisma (s)" />
+                    <Bar dataKey="beklenen" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} name="Beklenen (s)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       <Card>
         <CardHeader className="pb-2">
@@ -295,13 +453,14 @@ export default function Dashboard() {
                     Personel {sortKey === "name" ? (sortDir === "asc" ? "^" : "v") : ""}
                   </TableHead>
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("enNo")}>Sicil</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono">Tip</TableHead>
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("workDays")}>Is Gunu</TableHead>
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("avgDailyMinutes")}>Ort. Gunluk</TableHead>
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("totalOvertimeMinutes")}>Mesai</TableHead>
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("totalDeficitMinutes")}>Eksik</TableHead>
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("lateDays")}>Gec</TableHead>
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("offDays")}>Off</TableHead>
-                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("leaveDays")}>Izin</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("performancePercent")}>Performans</TableHead>
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("issueCount")}>Tutarsiz</TableHead>
                 </TableRow>
               </TableHeader>
@@ -312,6 +471,11 @@ export default function Dashboard() {
                       <Link href={`/employees/${s.enNo}`} className="font-medium">{s.name}</Link>
                     </TableCell>
                     <TableCell className="font-mono text-muted-foreground">{s.enNo}</TableCell>
+                    <TableCell>
+                      <Badge variant={s.employmentType === "full_time" ? "default" : "secondary"} className="text-[10px]">
+                        {s.employmentType === "full_time" ? "TZ" : "YZ"}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="font-mono">{s.workDays}</TableCell>
                     <TableCell className="font-mono">{formatMinutes(s.avgDailyMinutes)}</TableCell>
                     <TableCell className="font-mono">
@@ -324,7 +488,11 @@ export default function Dashboard() {
                       {s.lateDays > 0 ? <span className="text-amber-500">{s.lateDays}</span> : "-"}
                     </TableCell>
                     <TableCell className="font-mono">{s.offDays || "-"}</TableCell>
-                    <TableCell className="font-mono">{s.leaveDays || "-"}</TableCell>
+                    <TableCell className="font-mono">
+                      <span className={`${s.performancePercent >= 90 ? "text-emerald-500" : s.performancePercent >= 70 ? "text-amber-500" : "text-red-500"} font-semibold`}>
+                        %{s.performancePercent}
+                      </span>
+                    </TableCell>
                     <TableCell>
                       {s.issueCount > 0 ? <Badge variant="destructive">{s.issueCount}</Badge> : <Badge variant="secondary">0</Badge>}
                     </TableCell>

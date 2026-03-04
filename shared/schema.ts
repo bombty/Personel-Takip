@@ -24,6 +24,8 @@ export const employees = pgTable("employees", {
   phone: text("phone"),
   hireDate: date("hire_date"),
   active: boolean("active").default(true),
+  employmentType: text("employment_type").default("full_time"),
+  weeklyHours: integer("weekly_hours").default(45),
 });
 
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
@@ -155,7 +157,21 @@ export const defaultSettings: Record<string, string> = {
   nightShiftSupport: "true",
   minValidWorkMinutes: "30",
   maxValidWorkMinutes: "960",
+  fullTimeWeeklyHours: "45",
+  partTimeWeeklyHours: "30",
+  monthlyPayPeriodStart: "1",
+  dailyOvertimeThresholdMinutes: "660",
 };
+
+export interface WeeklyBreakdown {
+  weekStart: string;
+  weekEnd: string;
+  totalMinutes: number;
+  expectedMinutes: number;
+  overtimeMinutes: number;
+  deficitMinutes: number;
+  workDays: number;
+}
 
 export interface DailyReport {
   date: string;
@@ -185,6 +201,8 @@ export interface EmployeeSummary {
   enNo: number;
   name: string;
   department?: string;
+  employmentType: string;
+  weeklyHoursExpected: number;
   workDays: number;
   totalWorkMinutes: number;
   avgDailyMinutes: number;
@@ -196,6 +214,10 @@ export interface EmployeeSummary {
   offDays: number;
   leaveDays: number;
   dailyReports: DailyReport[];
+  weeklyBreakdown: WeeklyBreakdown[];
+  monthlyTotalHours: number;
+  monthlyExpectedHours: number;
+  performancePercent: number;
 }
 
 export interface ProcessingResult {

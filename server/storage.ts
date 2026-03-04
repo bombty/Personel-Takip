@@ -264,8 +264,9 @@ export class DatabaseStorage implements IStorage {
 
   async initDefaults(): Promise<void> {
     const currentSettings = await db.select().from(settings);
-    if (currentSettings.length === 0) {
-      for (const [key, value] of Object.entries(defaultSettings)) {
+    const existingKeys = new Set(currentSettings.map(s => s.key));
+    for (const [key, value] of Object.entries(defaultSettings)) {
+      if (!existingKeys.has(key)) {
         await db.insert(settings).values({ key, value });
       }
     }
