@@ -7,9 +7,18 @@ import * as XLSX from "xlsx";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-function detectColumns(headers: string[]): Record<string, number> {
+function safeStr(val: any): string {
+  if (val == null) return "";
+  return String(val).toLowerCase().trim();
+}
+
+function detectColumns(headers: any[]): Record<string, number> {
   const mapping: Record<string, number> = {};
-  const lowerHeaders = headers.map(h => (h || "").toString().toLowerCase().trim());
+  const maxCols = headers.length;
+  const lowerHeaders: string[] = [];
+  for (let i = 0; i < maxCols; i++) {
+    lowerHeaders.push(safeStr(headers[i]));
+  }
 
   const nameKeys = ["name", "ad", "personel", "isim", "calisan", "sicil"];
   const dateKeys = ["datetime", "tarih", "date", "zaman", "time"];
@@ -18,7 +27,8 @@ function detectColumns(headers: string[]): Record<string, number> {
 
   for (let i = 0; i < lowerHeaders.length; i++) {
     const h = lowerHeaders[i];
-    if (!mapping.name && nameKeys.some(k => h.includes(k) && h !== "tmno" && h !== "gmno")) {
+    if (!h) continue;
+    if (!mapping.name && nameKeys.some(k => h.includes(k)) && h !== "tmno" && h !== "gmno") {
       if (h === "no" || h === "numara" || h === "id") continue;
       mapping.name = i;
     }
@@ -29,6 +39,7 @@ function detectColumns(headers: string[]): Record<string, number> {
 
   for (let i = 0; i < lowerHeaders.length; i++) {
     const h = lowerHeaders[i];
+    if (!h) continue;
     if (h === "tmno") mapping.tmNo = i;
     if (h === "gmno") mapping.gmNo = i;
     if (h === "mode") mapping.mode = i;
@@ -143,13 +154,21 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Dosya bos veya yetersiz veri" });
       }
 
-      const headers = rawData[0].map((h: any) => String(h || ""));
+      const headerRow = rawData[0] || [];
+      const headers: string[] = [];
+      for (let i = 0; i < headerRow.length; i++) {
+        headers.push(headerRow[i] != null ? String(headerRow[i]) : "");
+      }
       const columnMapping = detectColumns(headers);
 
       if (columnMapping.name === undefined || columnMapping.dateTime === undefined || columnMapping.enNo === undefined) {
+        const missing: string[] = [];
+        if (columnMapping.name === undefined) missing.push("Personel Adi (Name)");
+        if (columnMapping.dateTime === undefined) missing.push("Tarih/Saat (DateTime)");
+        if (columnMapping.enNo === undefined) missing.push("Sicil No (EnNo)");
         return res.status(400).json({
-          error: "Sutun eslestirmesi yapilamadi",
-          headers,
+          error: `Bu dosya PDKS (parmak izi) formatinda degil. Eksik sutunlar: ${missing.join(", ")}. Lutfen parmak izi okuyucudan alinan veriyi yukleyin.`,
+          headers: headers.filter(h => h),
           detected: columnMapping,
         });
       }
@@ -180,9 +199,13 @@ export async function registerRoutes(
 
         let dateTime: Date;
         if (typeof dateTimeRaw === "number") {
-          dateTime = XLSX.SSF.parse_date_code(dateTimeRaw) as any;
-          const parsed = XLSX.SSF.parse_date_code(dateTimeRaw);
-          dateTime = new Date(parsed.y, parsed.m - 1, parsed.d, parsed.H, parsed.M, parsed.S);
+          if (XLSX.SSF && typeof XLSX.SSF.parse_date_code === "function") {
+            const parsed = XLSX.SSF.parse_date_code(dateTimeRaw);
+            dateTime = new Date(parsed.y, parsed.m - 1, parsed.d, parsed.H, parsed.M, parsed.S);
+          } else {
+            const epoch = new Date(1899, 11, 30);
+            dateTime = new Date(epoch.getTime() + dateTimeRaw * 86400000);
+          }
         } else {
           dateTime = new Date(String(dateTimeRaw));
         }
