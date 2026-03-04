@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { processAttendanceData } from "./processor";
+import { analyzeGeneralReport, analyzeEmployeeReport } from "./ai-analyzer";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import bcrypt from "bcryptjs";
@@ -620,6 +621,53 @@ export async function registerRoutes(
       res.send(buffer);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/ai-analysis/:uploadId", requireAuth, async (req, res) => {
+    try {
+      const uploadId = parseInt(req.params.uploadId);
+      const records = await storage.getAttendanceRecordsByUpload(uploadId);
+      const settingsMap = await storage.getSettings();
+      const holidaysList = await storage.getHolidays();
+      const leavesList = await storage.getLeaves();
+      const allEmployees = await storage.getEmployees();
+      const employeeIdMap = new Map<number, number>();
+      for (const emp of allEmployees) { employeeIdMap.set(emp.id, emp.enNo); }
+      const assignments = await storage.getWeeklyAssignments();
+      const schedules = await storage.getWorkSchedules();
+      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules, allEmployees);
+      const analysis = await analyzeGeneralReport(summaries, settingsMap);
+      res.json({ analysis });
+    } catch (err: any) {
+      console.error("AI analysis error:", err);
+      res.status(500).json({ error: err.message || "AI analiz hatasi" });
+    }
+  });
+
+  app.get("/api/ai-analysis/:uploadId/:enNo", requireAuth, async (req, res) => {
+    try {
+      const uploadId = parseInt(req.params.uploadId);
+      const enNo = parseInt(req.params.enNo);
+      const records = await storage.getAttendanceRecordsByUpload(uploadId);
+      const settingsMap = await storage.getSettings();
+      const holidaysList = await storage.getHolidays();
+      const leavesList = await storage.getLeaves();
+      const allEmployees = await storage.getEmployees();
+      const employeeIdMap = new Map<number, number>();
+      for (const emp of allEmployees) { employeeIdMap.set(emp.id, emp.enNo); }
+      const assignments = await storage.getWeeklyAssignments();
+      const schedules = await storage.getWorkSchedules();
+      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules, allEmployees);
+      const employee = summaries.find(s => s.enNo === enNo);
+      if (!employee) {
+        return res.status(404).json({ error: "Personel bulunamadi" });
+      }
+      const analysis = await analyzeEmployeeReport(employee, settingsMap);
+      res.json({ analysis });
+    } catch (err: any) {
+      console.error("AI employee analysis error:", err);
+      res.status(500).json({ error: err.message || "AI analiz hatasi" });
     }
   });
 

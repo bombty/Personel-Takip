@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Link } from "wouter";
 import {
   Users,
@@ -19,6 +20,8 @@ import {
   Download,
   Target,
   Calendar,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import {
   BarChart,
@@ -34,6 +37,7 @@ import type { EmployeeSummary, WeeklyBreakdown } from "@shared/schema";
 import { Input } from "@/components/ui/input";
 import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
 import {
   Table,
   TableBody,
@@ -117,6 +121,9 @@ export default function Dashboard() {
   const [selectedUploadId, setSelectedUploadId] = useState<string>("");
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [selectedEmployee, setSelectedEmployee] = useState<string>("all");
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<string>("");
+  const [aiLoading, setAiLoading] = useState(false);
   const { isYonetim } = useAuth();
 
   const { data: uploads } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
@@ -328,6 +335,36 @@ export default function Dashboard() {
               ))}
             </SelectContent>
           </Select>
+          {activeUploadId && (
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="button-ai-report"
+              disabled={aiLoading}
+              onClick={async () => {
+                setAiLoading(true);
+                setAiDialogOpen(true);
+                setAiAnalysis("");
+                try {
+                  const res = await fetch(`/api/ai-analysis/${activeUploadId}`);
+                  if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.error || `Sunucu hatasi (${res.status})`);
+                  }
+                  const data = await res.json();
+                  if (!data.analysis) throw new Error("Analiz sonucu bos");
+                  setAiAnalysis(data.analysis);
+                } catch (err: any) {
+                  setAiAnalysis("Analiz sirasinda bir hata olustu: " + (err.message || "Bilinmeyen hata"));
+                } finally {
+                  setAiLoading(false);
+                }
+              }}
+            >
+              {aiLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Sparkles className="h-4 w-4 mr-1" />}
+              AI Rapor
+            </Button>
+          )}
           {isYonetim && activeUploadId && (
             <a href={`/api/export/${activeUploadId}`} target="_blank" rel="noreferrer">
               <Button variant="outline" size="sm" data-testid="button-export">
@@ -503,6 +540,27 @@ export default function Dashboard() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              AI Genel Rapor Degerlendirmesi
+            </DialogTitle>
+          </DialogHeader>
+          {aiLoading ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Yapay zeka analiz yapiyor...</p>
+            </div>
+          ) : (
+            <div data-testid="text-ai-analysis">
+              <MarkdownRenderer content={aiAnalysis} />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

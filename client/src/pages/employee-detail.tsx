@@ -5,8 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Clock, TrendingUp, TrendingDown, Timer, LogOut, AlertTriangle, CalendarOff, CalendarCheck, Moon, Target, Briefcase } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowLeft, Clock, TrendingUp, TrendingDown, Timer, LogOut, AlertTriangle, CalendarOff, CalendarCheck, Moon, Target, Briefcase, Sparkles, Loader2 } from "lucide-react";
 import type { EmployeeSummary, DailyReport, WeeklyBreakdown } from "@shared/schema";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { useState, useMemo } from "react";
 import {
   Table,
@@ -60,6 +62,9 @@ export default function EmployeeDetail() {
   const [, params] = useRoute("/employees/:enNo");
   const enNo = params?.enNo ? parseInt(params.enNo) : 0;
   const [selectedUploadId, setSelectedUploadId] = useState<string>("");
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<string>("");
+  const [aiLoading, setAiLoading] = useState(false);
 
   const { data: uploads } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
 
@@ -125,18 +130,49 @@ export default function EmployeeDetail() {
             </p>
           </div>
         </div>
-        <Select value={selectedUploadId || String(activeUploadId || "")} onValueChange={setSelectedUploadId}>
-          <SelectTrigger className="w-[260px]" data-testid="select-upload">
-            <SelectValue placeholder="Yukleme sec..." />
-          </SelectTrigger>
-          <SelectContent>
-            {uploads?.map((u: any) => (
-              <SelectItem key={u.id} value={String(u.id)}>
-                {u.fileName} ({u.totalRecords} kayit)
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="button-ai-evaluation"
+            disabled={aiLoading || !activeUploadId}
+            onClick={async () => {
+              if (!activeUploadId) return;
+              setAiLoading(true);
+              setAiDialogOpen(true);
+              setAiAnalysis("");
+              try {
+                const res = await fetch(`/api/ai-analysis/${activeUploadId}/${enNo}`);
+                if (!res.ok) {
+                  const errData = await res.json().catch(() => ({}));
+                  throw new Error(errData.error || `Sunucu hatasi (${res.status})`);
+                }
+                const data = await res.json();
+                if (!data.analysis) throw new Error("Analiz sonucu bos");
+                setAiAnalysis(data.analysis);
+              } catch (err: any) {
+                setAiAnalysis("Analiz sirasinda bir hata olustu: " + (err.message || "Bilinmeyen hata"));
+              } finally {
+                setAiLoading(false);
+              }
+            }}
+          >
+            {aiLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Sparkles className="h-4 w-4 mr-1" />}
+            AI Degerlendirme
+          </Button>
+          <Select value={selectedUploadId || String(activeUploadId || "")} onValueChange={setSelectedUploadId}>
+            <SelectTrigger className="w-[260px]" data-testid="select-upload">
+              <SelectValue placeholder="Yukleme sec..." />
+            </SelectTrigger>
+            <SelectContent>
+              {uploads?.map((u: any) => (
+                <SelectItem key={u.id} value={String(u.id)}>
+                  {u.fileName} ({u.totalRecords} kayit)
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -407,6 +443,27 @@ export default function EmployeeDetail() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              AI Personel Degerlendirmesi - {employee?.name}
+            </DialogTitle>
+          </DialogHeader>
+          {aiLoading ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Yapay zeka analiz yapiyor...</p>
+            </div>
+          ) : (
+            <div data-testid="text-ai-employee-analysis">
+              <MarkdownRenderer content={aiAnalysis} />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

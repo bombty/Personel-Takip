@@ -11,6 +11,7 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - **File Processing:** SheetJS (xlsx)
 - **Charts:** Recharts
 - **Routing:** Wouter
+- **AI:** OpenAI GPT-4o via Replit AI Integrations (env: AI_INTEGRATIONS_OPENAI_API_KEY, AI_INTEGRATIONS_OPENAI_BASE_URL)
 
 ## Architecture
 - `shared/schema.ts` - Data models, TypeScript interfaces, Zod schemas
@@ -18,6 +19,7 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - `server/storage.ts` - Storage interface and PostgreSQL implementation with all CRUD ops
 - `server/processor.ts` - Attendance data processing engine (punch pairing, overtime calc, schedule-aware)
 - `server/routes.ts` - API endpoints with session auth, role-based access, file upload (multer)
+- `server/ai-analyzer.ts` - OpenAI-powered attendance report analysis (general + per-employee)
 - `server/index.ts` - Express server with session middleware
 - `client/src/hooks/use-auth.tsx` - AuthContext/Provider for login/logout/role management
 - `client/src/` - React frontend with pages and components
@@ -46,6 +48,12 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - Holiday calendar with salary multipliers
 - Leave management system
 - Excel report export (3-sheet workbook)
+- **Weekly 45-hour rule** (Turkish labor law): weekly overtime/deficit calculation, weekly breakdown per employee
+- **Employment type support:** Full-time (45h/week default) and Part-time (30h/week default) with per-employee customization
+- **Monthly pay period** calculation with performance percentage
+- **hasAssignment flag:** Late/early detection only when employee has explicit weekly schedule assignment (prevents false alerts with default schedule)
+- **AI-powered report analysis:** General report and per-employee evaluation using GPT-4o (Turkish language)
+- Dashboard month/employee filters, weekly bar chart
 - Dark theme with warm coffee-inspired colors
 
 ## Database Tables
@@ -74,6 +82,8 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - `GET /api/report/:uploadId` - Report data
 - `GET /api/export/:uploadId` - Excel export
 - `GET/POST/PATCH/DELETE /api/leaves` - Leave CRUD
+- `GET /api/ai-analysis/:uploadId` - AI general report analysis (all employees)
+- `GET /api/ai-analysis/:uploadId/:enNo` - AI individual employee analysis
 - `POST /api/clear-data` - Clear all attendance data (yonetim only)
 
 ## Default Credentials
