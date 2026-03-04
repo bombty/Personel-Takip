@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,9 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowLeft, Clock, TrendingUp, TrendingDown, Timer, LogOut, AlertTriangle, CalendarOff, CalendarCheck, Moon, Target, Briefcase, Sparkles, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { ArrowLeft, Clock, TrendingUp, TrendingDown, Timer, LogOut, AlertTriangle, CalendarOff, CalendarCheck, Moon, Target, Briefcase, Sparkles, Loader2, Plus, FileText } from "lucide-react";
 import type { EmployeeSummary, DailyReport, WeeklyBreakdown } from "@shared/schema";
+import { leaveTypes } from "@shared/schema";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { useState, useMemo } from "react";
 import {
   Table,
@@ -30,6 +36,12 @@ function formatHours(h: number): string {
   return `${h.toFixed(1)}s`;
 }
 
+const LEAVE_LABELS = new Set([...leaveTypes.map(t => t.label), "Izinli"]);
+
+function isLeaveStatus(status: string): boolean {
+  return LEAVE_LABELS.has(status);
+}
+
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     "Normal": "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
@@ -47,12 +59,15 @@ function StatusBadge({ status }: { status: string }) {
     "Molasiz": "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
     "Gece Gecisi": "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
     "Off Gunu Calisma": "bg-purple-500/10 text-purple-400 border-purple-500/20",
-    "Izinli": "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
     "Off": "bg-gray-500/10 text-gray-400 border-gray-500/20",
+    "Ucretsiz Izin": "bg-gray-500/10 text-gray-400 border-gray-500/20",
   };
 
+  const leaveColor = "bg-cyan-500/10 text-cyan-500 border-cyan-500/20";
+  const colorClass = colors[status] || (isLeaveStatus(status) ? leaveColor : "bg-muted text-muted-foreground");
+
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${colors[status] || "bg-muted text-muted-foreground"}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${colorClass}`}>
       {status}
     </span>
   );
@@ -65,8 +80,12 @@ export default function EmployeeDetail() {
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<string>("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+  const [leaveForm, setLeaveForm] = useState({ type: "annual", startDate: "", endDate: "", notes: "" });
+  const { toast } = useToast();
 
   const { data: uploads } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
+  const { data: employees } = useQuery<any[]>({ queryKey: ["/api/employees"] });
 
   const activeUploadId = useMemo(() => {
     if (selectedUploadId) return parseInt(selectedUploadId);
@@ -80,6 +99,26 @@ export default function EmployeeDetail() {
   });
 
   const employee = reportData?.summaries.find(s => s.enNo === enNo);
+  const empRecord = employees?.find((e: any) => e.enNo === enNo);
+
+  const { data: leaveHistory } = useQuery<any[]>({
+    queryKey: ["/api/leaves/employee", empRecord?.id],
+    enabled: !!empRecord?.id,
+  });
+
+  const createLeaveMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/leaves", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/leaves/employee", empRecord?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/report", activeUploadId] });
+      setLeaveDialogOpen(false);
+      setLeaveForm({ type: "annual", startDate: "", endDate: "", notes: "" });
+      toast({ title: "Izin kaydi eklendi" });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -105,7 +144,7 @@ export default function EmployeeDetail() {
     );
   }
 
-  const issues = employee.dailyReports.filter(d => d.status.some(s => s !== "Normal" && s !== "Off" && s !== "Izinli"));
+  const issues = employee.dailyReports.filter(d => d.status.some(s => s !== "Normal" && s !== "Off" && !isLeaveStatus(s)));
 
   return (
     <div className="p-6 space-y-6 overflow-auto h-full">
@@ -251,6 +290,19 @@ export default function EmployeeDetail() {
                   <p className="font-mono font-semibold" data-testid="text-leave-days">{employee.leaveDays}</p>
                 </div>
               </div>
+              {employee.leaveBreakdown && employee.leaveBreakdown.length > 0 && (
+                <div className="pt-2 border-t border-border">
+                  <p className="text-xs text-muted-foreground mb-1">Izin Kiriliimi</p>
+                  <div className="flex flex-wrap gap-2">
+                    {employee.leaveBreakdown.map((lb: any, i: number) => (
+                      <div key={i} className="flex items-center gap-1" data-testid={`leave-breakdown-${lb.type}`}>
+                        <StatusBadge status={lb.label} />
+                        <span className="font-mono text-xs font-semibold">{lb.days}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -416,6 +468,82 @@ export default function EmployeeDetail() {
         </CardContent>
       </Card>
 
+      {leaveHistory && leaveHistory.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <FileText className="h-4 w-4 text-cyan-500" />
+                Izin Gecmisi ({leaveHistory.length})
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="button-add-leave"
+                onClick={() => setLeaveDialogOpen(true)}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Izin Ekle
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tarih Araligi</TableHead>
+                    <TableHead className="font-mono">Gun</TableHead>
+                    <TableHead>Izin Turu</TableHead>
+                    <TableHead>Durum</TableHead>
+                    <TableHead>Notlar</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {leaveHistory.map((leave: any) => {
+                    const days = Math.ceil((new Date(leave.endDate).getTime() - new Date(leave.startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                    const typeLabel = leaveTypes.find(t => t.value === leave.type)?.label || leave.type;
+                    return (
+                      <TableRow key={leave.id} data-testid={`row-leave-${leave.id}`}>
+                        <TableCell className="font-mono text-xs">{leave.startDate} ~ {leave.endDate}</TableCell>
+                        <TableCell className="font-mono text-xs">{days}</TableCell>
+                        <TableCell><StatusBadge status={typeLabel} /></TableCell>
+                        <TableCell>
+                          <Badge variant={leave.status === "approved" ? "default" : leave.status === "pending" ? "secondary" : "destructive"} className="text-[10px]">
+                            {leave.status === "approved" ? "Onaylandi" : leave.status === "pending" ? "Beklemede" : "Reddedildi"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">{leave.notes || "-"}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!leaveHistory?.length && empRecord && (
+        <Card>
+          <CardContent className="p-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <FileText className="h-4 w-4" />
+              Izin kaydi bulunmuyor
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="button-add-leave-empty"
+              onClick={() => setLeaveDialogOpen(true)}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Izin Ekle
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {issues.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
@@ -431,7 +559,7 @@ export default function EmployeeDetail() {
                   <span className="font-mono text-xs text-muted-foreground min-w-[80px]">{d.date}</span>
                   <span className="text-xs min-w-[60px]">{d.dayName}</span>
                   <div className="flex gap-1 flex-wrap">
-                    {d.status.filter(s => s !== "Normal" && s !== "Off" && s !== "Izinli").map((s, j) => (
+                    {d.status.filter(s => s !== "Normal" && s !== "Off" && !isLeaveStatus(s)).map((s, j) => (
                       <StatusBadge key={j} status={s} />
                     ))}
                   </div>
@@ -462,6 +590,80 @@ export default function EmployeeDetail() {
               <MarkdownRenderer content={aiAnalysis} />
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={leaveDialogOpen} onOpenChange={(open) => {
+        setLeaveDialogOpen(open);
+        if (!open) setLeaveForm({ type: "annual", startDate: "", endDate: "", notes: "" });
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Izin Ekle - {employee?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Izin Turu</Label>
+              <Select value={leaveForm.type} onValueChange={v => setLeaveForm(f => ({ ...f, type: v }))}>
+                <SelectTrigger data-testid="select-leave-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {leaveTypes.map(t => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Baslangic</Label>
+                <Input
+                  type="date"
+                  data-testid="input-leave-start"
+                  value={leaveForm.startDate}
+                  onChange={e => setLeaveForm(f => ({ ...f, startDate: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Bitis</Label>
+                <Input
+                  type="date"
+                  data-testid="input-leave-end"
+                  value={leaveForm.endDate}
+                  onChange={e => setLeaveForm(f => ({ ...f, endDate: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Notlar</Label>
+              <Textarea
+                data-testid="input-leave-notes"
+                value={leaveForm.notes}
+                onChange={e => setLeaveForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Opsiyonel notlar..."
+              />
+            </div>
+            <Button
+              className="w-full"
+              data-testid="button-submit-leave"
+              disabled={!leaveForm.startDate || !leaveForm.endDate || createLeaveMutation.isPending}
+              onClick={() => {
+                if (!empRecord) return;
+                createLeaveMutation.mutate({
+                  employeeId: empRecord.id,
+                  type: leaveForm.type,
+                  startDate: leaveForm.startDate,
+                  endDate: leaveForm.endDate,
+                  notes: leaveForm.notes || undefined,
+                  status: "approved",
+                });
+              }}
+            >
+              {createLeaveMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+              Izin Kaydet
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

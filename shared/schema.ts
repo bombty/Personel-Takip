@@ -197,6 +197,12 @@ export interface DailyReport {
   nightCrossing: boolean;
 }
 
+export interface LeaveBreakdown {
+  type: string;
+  label: string;
+  days: number;
+}
+
 export interface EmployeeSummary {
   enNo: number;
   name: string;
@@ -213,6 +219,7 @@ export interface EmployeeSummary {
   issueCount: number;
   offDays: number;
   leaveDays: number;
+  leaveBreakdown: LeaveBreakdown[];
   dailyReports: DailyReport[];
   weeklyBreakdown: WeeklyBreakdown[];
   monthlyTotalHours: number;

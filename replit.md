@@ -53,6 +53,9 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - **Monthly pay period** calculation with performance percentage
 - **hasAssignment flag:** Late/early detection only when employee has explicit weekly schedule assignment (prevents false alerts with default schedule)
 - **AI-powered report analysis:** General report and per-employee evaluation using GPT-4o (Turkish language)
+- **Leave integration in reports:** Leave days without punches auto-appear in daily reports with specific leave type labels (Yillik Izin, Rapor, Ucretsiz Izin, etc.)
+- **Leave breakdown:** EmployeeSummary includes `leaveBreakdown: LeaveBreakdown[]` showing count per leave type
+- **Employee detail leave history:** Leave history card with quick-add button on employee detail page
 - Dashboard month/employee filters, weekly bar chart
 - Dark theme with warm coffee-inspired colors
 

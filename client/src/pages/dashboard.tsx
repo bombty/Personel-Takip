@@ -160,6 +160,20 @@ export default function Dashboard() {
       )).length;
       const offDays = filteredReports.filter(r => r.isOffDay).length;
       const leaveDays = filteredReports.filter(r => r.isOnLeave).length;
+      const lbMap = new Map<string, { type: string; label: string; days: number }>();
+      for (const r of filteredReports) {
+        if (r.isOnLeave) {
+          for (const st of r.status) {
+            const lt = s.leaveBreakdown?.find(lb => lb.label === st);
+            if (lt) {
+              const existing = lbMap.get(lt.type) || { ...lt, days: 0 };
+              existing.days++;
+              lbMap.set(lt.type, existing);
+            }
+          }
+        }
+      }
+      const leaveBreakdown = Array.from(lbMap.values());
       return {
         ...s,
         dailyReports: filteredReports,
@@ -173,6 +187,7 @@ export default function Dashboard() {
         issueCount,
         offDays,
         leaveDays,
+        leaveBreakdown,
         monthlyTotalHours: Math.round(totalWorkMinutes / 60 * 10) / 10,
       };
     });
@@ -199,7 +214,21 @@ export default function Dashboard() {
     const avgPerformance = summaries.reduce((s, e) => s + e.performancePercent, 0) / totalPersonnel;
     const totalMonthlyHours = summaries.reduce((s, e) => s + e.monthlyTotalHours, 0);
     const totalExpectedHours = summaries.reduce((s, e) => s + e.monthlyExpectedHours, 0);
-    return { totalPersonnel, totalWork, avgDaily, totalOvertime, totalDeficit, totalLate, totalEarlyLeave, totalIssues, totalOff, totalLeave, avgPerformance, totalMonthlyHours, totalExpectedHours };
+    const leaveBreakdownMap = new Map<string, { label: string; days: number }>();
+    for (const emp of summaries) {
+      if (emp.leaveBreakdown) {
+        for (const lb of emp.leaveBreakdown) {
+          const existing = leaveBreakdownMap.get(lb.type) || { label: lb.label, days: 0 };
+          existing.days += lb.days;
+          leaveBreakdownMap.set(lb.type, existing);
+        }
+      }
+    }
+    const leaveDesc = Array.from(leaveBreakdownMap.values())
+      .sort((a, b) => b.days - a.days)
+      .map(l => `${l.label}: ${l.days}`)
+      .join(", ");
+    return { totalPersonnel, totalWork, avgDaily, totalOvertime, totalDeficit, totalLate, totalEarlyLeave, totalIssues, totalOff, totalLeave, leaveDesc, avgPerformance, totalMonthlyHours, totalExpectedHours };
   }, [summaries]);
 
   const filteredSummaries = useMemo(() => {
@@ -385,7 +414,7 @@ export default function Dashboard() {
             <StatCard title="Gec Kalma" value={`${stats.totalLate} gun`} icon={Timer} variant="warning" />
             <StatCard title="Erken Cikis" value={`${stats.totalEarlyLeave} gun`} icon={LogOut} variant="warning" />
             <StatCard title="Off Gunleri" value={stats.totalOff} icon={CalendarOff} />
-            <StatCard title="Izin Gunleri" value={stats.totalLeave} icon={CalendarCheck} />
+            <StatCard title="Izin Gunleri" value={stats.totalLeave} icon={CalendarCheck} description={stats.leaveDesc || undefined} />
             <StatCard title="Sorun Sayisi" value={stats.totalIssues} icon={AlertTriangle} variant="danger" />
             <StatCard
               title="Performans"

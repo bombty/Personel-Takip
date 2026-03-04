@@ -1,4 +1,5 @@
-import type { AttendanceRecord, DailyReport, EmployeeSummary, Holiday, Leave, WeeklyAssignment, WorkSchedule, WeeklyBreakdown, Employee } from "@shared/schema";
+import type { AttendanceRecord, DailyReport, EmployeeSummary, Holiday, Leave, WeeklyAssignment, WorkSchedule, WeeklyBreakdown, Employee, LeaveBreakdown } from "@shared/schema";
+import { leaveTypes } from "@shared/schema";
 
 const TURKISH_DAYS = ["Pazar", "Pazartesi", "Sali", "Carsamba", "Persembe", "Cuma", "Cumartesi"];
 const DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
@@ -337,6 +338,43 @@ export function processAttendanceData(
       }
     }
 
+    const punchDates = Array.from(byWorkDay.keys()).sort();
+    const punchMinDate = punchDates.length > 0 ? punchDates[0] : null;
+    const punchMaxDate = punchDates.length > 0 ? punchDates[punchDates.length - 1] : null;
+
+    if (punchMinDate && punchMaxDate) {
+      for (const [key, info] of leaveLookup) {
+        const parts = key.split("_");
+        const leaveEnNo = parseInt(parts[0]);
+        if (leaveEnNo !== enNo) continue;
+        const dateKey = parts.slice(1).join("_");
+        if (dateKey >= punchMinDate && dateKey <= punchMaxDate && !byWorkDay.has(dateKey)) {
+          byWorkDay.set(dateKey, { punches: [], hasNightCrossing: false });
+        }
+      }
+    }
+
+    if (empId && punchMinDate && punchMaxDate) {
+      const existingDates = Array.from(byWorkDay.keys()).sort();
+      if (existingDates.length > 0) {
+        const minDate = punchMinDate;
+        const maxDate = punchMaxDate;
+        const cur = new Date(minDate + "T00:00:00");
+        const end = new Date(maxDate + "T00:00:00");
+        while (cur <= end) {
+          const dk = localDateKey(cur);
+          if (!byWorkDay.has(dk)) {
+            const dayOfWeek = cur.getDay();
+            const { isOff } = getScheduleForDay(empId, dk, dayOfWeek, empAssignments, schedulesMap, defaultSchedule);
+            if (isOff) {
+              byWorkDay.set(dk, { punches: [], hasNightCrossing: false });
+            }
+          }
+          cur.setDate(cur.getDate() + 1);
+        }
+      }
+    }
+
     const dailyReports: DailyReport[] = [];
     let totalWorkMin = 0;
     let totalOvertimeMin = 0;
@@ -347,6 +385,7 @@ export function processAttendanceData(
     let workDays = 0;
     let offDays = 0;
     let leaveDays = 0;
+    const leaveTypeCounts = new Map<string, number>();
 
     const sortedDates = Array.from(byWorkDay.keys()).sort();
 
@@ -430,8 +469,11 @@ export function processAttendanceData(
       let deficitMin = 0;
 
       if (isOnLeave) {
-        statuses.push("Izinli");
+        const leaveLabel = leaveTypes.find(t => t.value === leaveInfo?.type)?.label || "Izinli";
+        statuses.push(leaveLabel);
         leaveDays++;
+        const lt = leaveInfo?.type || "other";
+        leaveTypeCounts.set(lt, (leaveTypeCounts.get(lt) || 0) + 1);
       } else if (isOff) {
         if (punchCount > 0) {
           statuses.push("Off Gunu Calisma");
@@ -554,6 +596,13 @@ export function processAttendanceData(
       ? Math.round((monthlyTotalNetHours / monthlyExpectedHours) * 100)
       : 0;
 
+    const leaveBreakdown: LeaveBreakdown[] = [];
+    for (const [type, days] of leaveTypeCounts) {
+      const label = leaveTypes.find(t => t.value === type)?.label || type;
+      leaveBreakdown.push({ type, label, days });
+    }
+    leaveBreakdown.sort((a, b) => b.days - a.days);
+
     summaries.push({
       enNo,
       name: capitalizedName,
@@ -570,6 +619,7 @@ export function processAttendanceData(
       issueCount,
       offDays,
       leaveDays,
+      leaveBreakdown,
       dailyReports,
       weeklyBreakdown,
       monthlyTotalHours,
