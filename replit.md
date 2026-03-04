@@ -28,7 +28,7 @@ A full-stack web application for DOSPRESSO that tracks employee attendance using
 6. **Ayarlar** (`/settings`) - Work hour rules, tolerances, holidays
 
 ## Key Features
-- Excel/CSV upload with automatic column detection (null-safe header parsing)
+- Excel/CSV/Numbers upload with automatic column detection (null-safe header parsing)
 - Punch pairing algorithm (chronological entry/exit matching)
 - Overtime, deficit, late, early leave calculations
 - Turkish official holiday calendar with salary multipliers

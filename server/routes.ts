@@ -181,7 +181,7 @@ export async function registerRoutes(
       });
 
       const attendanceRows: any[] = [];
-      const employeeSet = new Set<number>();
+      const employeeMap = new Map<number, string>();
       const errors: string[] = [];
 
       for (let i = 1; i < rawData.length; i++) {
@@ -189,10 +189,11 @@ export async function registerRoutes(
         if (!row || row.length === 0) continue;
 
         const enNo = parseInt(String(row[columnMapping.enNo] || "0"));
-        const name = String(row[columnMapping.name] || "").trim();
+        const rawName = row[columnMapping.name];
+        const name = (rawName != null ? String(rawName).trim() : "") || ("Personel-" + enNo);
         let dateTimeRaw = row[columnMapping.dateTime];
 
-        if (!name || !enNo || !dateTimeRaw) {
+        if (!enNo || !dateTimeRaw) {
           errors.push(`Satir ${i + 1}: Eksik veri`);
           continue;
         }
@@ -215,9 +216,14 @@ export async function registerRoutes(
           continue;
         }
 
-        employeeSet.add(enNo);
+        if (!employeeMap.has(enNo) || (rawName != null && String(rawName).trim())) {
+          employeeMap.set(enNo, name);
+        }
 
-        await storage.upsertEmployee({ enNo, name, active: true });
+        const modeRaw = columnMapping.mode !== undefined ? row[columnMapping.mode] : null;
+        const modeVal = modeRaw != null ? (isNaN(Number(modeRaw)) ? null : parseInt(String(modeRaw))) : null;
+        const proxyRaw = columnMapping.proxyWork !== undefined ? row[columnMapping.proxyWork] : null;
+        const proxyVal = proxyRaw != null ? (isNaN(Number(proxyRaw)) ? null : parseInt(String(proxyRaw))) : null;
 
         attendanceRows.push({
           uploadId: uploadRecord.id,
@@ -226,11 +232,15 @@ export async function registerRoutes(
           dateTime,
           tmNo: columnMapping.tmNo !== undefined ? parseInt(String(row[columnMapping.tmNo] || "0")) : null,
           gmNo: columnMapping.gmNo !== undefined ? parseInt(String(row[columnMapping.gmNo] || "0")) : null,
-          mode: columnMapping.mode !== undefined ? parseInt(String(row[columnMapping.mode] || "0")) : null,
+          mode: modeVal,
           inOut: columnMapping.inOut !== undefined ? String(row[columnMapping.inOut] || "") : null,
           antipass: columnMapping.antipass !== undefined ? String(row[columnMapping.antipass] || "") : null,
-          proxyWork: columnMapping.proxyWork !== undefined ? parseInt(String(row[columnMapping.proxyWork] || "0")) : null,
+          proxyWork: proxyVal,
         });
+      }
+
+      for (const [enNo, name] of employeeMap) {
+        await storage.upsertEmployee({ enNo, name, active: true });
       }
 
       if (attendanceRows.length > 0) {
@@ -251,7 +261,7 @@ export async function registerRoutes(
       res.json({
         uploadId: uploadRecord.id,
         totalRecords: attendanceRows.length,
-        totalEmployees: employeeSet.size,
+        totalEmployees: employeeMap.size,
         errors,
         summaries,
         headers,

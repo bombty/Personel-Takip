@@ -26,10 +26,10 @@ export default function UploadPage() {
   const [, setLocation] = useLocation();
 
   const handleFile = useCallback((f: File) => {
-    const validExts = [".xlsx", ".xls", ".csv"];
+    const validExts = [".xlsx", ".xls", ".csv", ".numbers"];
     const ext = f.name.substring(f.name.lastIndexOf(".")).toLowerCase();
     if (!validExts.includes(ext)) {
-      toast({ title: "Hata", description: "Desteklenmeyen dosya formati. .xlsx, .xls veya .csv kullanin.", variant: "destructive" });
+      toast({ title: "Hata", description: "Desteklenmeyen dosya formati. .xlsx, .xls, .csv veya .numbers kullanin.", variant: "destructive" });
       return;
     }
     setFile(f);
@@ -123,12 +123,12 @@ export default function UploadPage() {
                 <UploadIcon className="h-12 w-12 text-muted-foreground opacity-40" />
                 <div>
                   <p className="font-medium">Dosyayi surukle birak veya secin</p>
-                  <p className="text-sm text-muted-foreground">.xlsx, .xls, .csv desteklenir</p>
+                  <p className="text-sm text-muted-foreground">.xlsx, .xls, .csv, .numbers desteklenir</p>
                 </div>
                 <label>
                   <input
                     type="file"
-                    accept=".xlsx,.xls,.csv"
+                    accept=".xlsx,.xls,.csv,.numbers"
                     className="hidden"
                     onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
                     data-testid="input-file-upload"
