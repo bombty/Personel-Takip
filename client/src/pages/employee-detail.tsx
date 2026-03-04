@@ -4,8 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Clock, TrendingUp, TrendingDown, Timer, LogOut, AlertTriangle } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft, Clock, TrendingUp, TrendingDown, Timer, LogOut, AlertTriangle, CalendarOff, CalendarCheck } from "lucide-react";
 import type { EmployeeSummary, DailyReport } from "@shared/schema";
+import { useState, useMemo } from "react";
 import {
   Table,
   TableBody,
@@ -23,19 +25,6 @@ function formatMinutes(m: number): string {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const variants: Record<string, "default" | "secondary" | "destructive"> = {
-    "Normal": "secondary",
-    "Gec": "default",
-    "Erken Cikis": "default",
-    "Eksik Kayit": "destructive",
-    "Mesai": "secondary",
-    "Hafta Sonu Calisma": "secondary",
-    "Tatil Calisma": "secondary",
-    "Cok Kisa": "destructive",
-    "Cok Uzun": "destructive",
-    "Coklu Okutma": "destructive",
-  };
-
   const colors: Record<string, string> = {
     "Normal": "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
     "Gec": "bg-amber-500/10 text-amber-500 border-amber-500/20",
@@ -48,6 +37,7 @@ function StatusBadge({ status }: { status: string }) {
     "Cok Uzun": "bg-red-500/10 text-red-500 border-red-500/20",
     "Coklu Okutma": "bg-red-500/10 text-red-500 border-red-500/20",
     "Izinli": "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
+    "Off": "bg-gray-500/10 text-gray-400 border-gray-500/20",
   };
 
   return (
@@ -60,15 +50,19 @@ function StatusBadge({ status }: { status: string }) {
 export default function EmployeeDetail() {
   const [, params] = useRoute("/employees/:enNo");
   const enNo = params?.enNo ? parseInt(params.enNo) : 0;
+  const [selectedUploadId, setSelectedUploadId] = useState<string>("");
 
   const { data: uploads } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
-  const latestUploadId = uploads && uploads.length > 0
-    ? Math.max(...uploads.map((u: any) => u.id))
-    : null;
+
+  const activeUploadId = useMemo(() => {
+    if (selectedUploadId) return parseInt(selectedUploadId);
+    if (uploads && uploads.length > 0) return Math.max(...uploads.map((u: any) => u.id));
+    return null;
+  }, [uploads, selectedUploadId]);
 
   const { data: reportData, isLoading } = useQuery<{ summaries: EmployeeSummary[] }>({
-    queryKey: ["/api/report", latestUploadId],
-    enabled: !!latestUploadId,
+    queryKey: ["/api/report", activeUploadId],
+    enabled: !!activeUploadId,
   });
 
   const employee = reportData?.summaries.find(s => s.enNo === enNo);
@@ -77,8 +71,8 @@ export default function EmployeeDetail() {
     return (
       <div className="p-6 space-y-6">
         <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[...Array(8)].map((_, i) => (
             <Card key={i}><CardContent className="p-4"><Skeleton className="h-12 w-24" /></CardContent></Card>
           ))}
         </div>
@@ -89,7 +83,7 @@ export default function EmployeeDetail() {
   if (!employee) {
     return (
       <div className="p-6 flex flex-col items-center justify-center h-full">
-        <p className="text-muted-foreground mb-4">Personel bulunamadi</p>
+        <p className="text-muted-foreground mb-4">Personel bulunamadi veya bu yuklemede kaydi yok</p>
         <Link href="/">
           <Button variant="secondary">Dashboard'a Don</Button>
         </Link>
@@ -97,28 +91,42 @@ export default function EmployeeDetail() {
     );
   }
 
-  const issues = employee.dailyReports.filter(d => d.status.some(s => s !== "Normal"));
+  const issues = employee.dailyReports.filter(d => d.status.some(s => s !== "Normal" && s !== "Off" && s !== "Izinli"));
 
   return (
     <div className="p-6 space-y-6 overflow-auto h-full">
-      <div className="flex items-center gap-3 flex-wrap">
-        <Link href="/">
-          <Button variant="secondary" size="icon" data-testid="button-back">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-employee-name">{employee.name}</h1>
-          <p className="text-sm text-muted-foreground">Sicil No: {employee.enNo}</p>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <Link href="/">
+            <Button variant="secondary" size="icon" data-testid="button-back">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold" data-testid="text-employee-name">{employee.name}</h1>
+            <p className="text-sm text-muted-foreground">Sicil No: {employee.enNo} {employee.department && `| ${employee.department}`}</p>
+          </div>
         </div>
+        <Select value={selectedUploadId || String(activeUploadId || "")} onValueChange={setSelectedUploadId}>
+          <SelectTrigger className="w-[260px]" data-testid="select-upload">
+            <SelectValue placeholder="Yukleme sec..." />
+          </SelectTrigger>
+          <SelectContent>
+            {uploads?.map((u: any) => (
+              <SelectItem key={u.id} value={String(u.id)}>
+                {u.fileName} ({u.totalRecords} kayit)
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
         <Card>
           <CardContent className="p-3">
             <Clock className="h-4 w-4 text-primary mb-1" />
             <p className="text-xs text-muted-foreground">Toplam Calisma</p>
-            <p className="text-lg font-bold font-mono">{formatMinutes(employee.totalWorkMinutes)}</p>
+            <p className="text-lg font-bold font-mono" data-testid="text-total-work">{formatMinutes(employee.totalWorkMinutes)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -156,6 +164,20 @@ export default function EmployeeDetail() {
             <p className="text-lg font-bold font-mono">{formatMinutes(employee.avgDailyMinutes)}</p>
           </CardContent>
         </Card>
+        <Card>
+          <CardContent className="p-3">
+            <CalendarOff className="h-4 w-4 text-gray-400 mb-1" />
+            <p className="text-xs text-muted-foreground">Off Gunleri</p>
+            <p className="text-lg font-bold font-mono" data-testid="text-off-days">{employee.offDays}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3">
+            <CalendarCheck className="h-4 w-4 text-cyan-500 mb-1" />
+            <p className="text-xs text-muted-foreground">Izin Gunleri</p>
+            <p className="text-lg font-bold font-mono" data-testid="text-leave-days">{employee.leaveDays}</p>
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
@@ -169,6 +191,7 @@ export default function EmployeeDetail() {
                 <TableRow>
                   <TableHead>Tarih</TableHead>
                   <TableHead>Gun</TableHead>
+                  <TableHead className="font-mono">Vardiya</TableHead>
                   <TableHead className="font-mono">1. Giris</TableHead>
                   <TableHead className="font-mono">1. Cikis</TableHead>
                   <TableHead className="font-mono">2. Giris</TableHead>
@@ -181,29 +204,34 @@ export default function EmployeeDetail() {
               </TableHeader>
               <TableBody>
                 {employee.dailyReports.map((d: DailyReport) => (
-                  <TableRow key={d.date} className={d.isWeekend ? "opacity-60" : ""} data-testid={`row-day-${d.date}`}>
+                  <TableRow
+                    key={d.date}
+                    className={d.isOffDay ? "opacity-40" : d.isOnLeave ? "bg-cyan-500/5" : ""}
+                    data-testid={`row-day-${d.date}`}
+                  >
                     <TableCell className="font-mono text-xs">{d.date}</TableCell>
                     <TableCell className="text-xs">{d.dayName}</TableCell>
+                    <TableCell className="text-xs">
+                      {d.scheduleName ? (
+                        <Badge variant="outline" className="text-[10px]">{d.scheduleName}</Badge>
+                      ) : d.isOffDay ? (
+                        <Badge variant="secondary" className="text-[10px]">OFF</Badge>
+                      ) : "-"}
+                    </TableCell>
                     <TableCell className="font-mono text-xs">{d.pairs[0]?.in || "-"}</TableCell>
                     <TableCell className="font-mono text-xs">{d.pairs[0]?.out || "-"}</TableCell>
                     <TableCell className="font-mono text-xs">{d.pairs[1]?.in || "-"}</TableCell>
                     <TableCell className="font-mono text-xs">{d.pairs[1]?.out || "-"}</TableCell>
                     <TableCell className="font-mono text-xs">{d.totalWorkMinutes > 0 ? formatMinutes(d.totalWorkMinutes) : "-"}</TableCell>
                     <TableCell className="font-mono text-xs">
-                      {d.overtimeMinutes > 0 ? (
-                        <span className="text-emerald-500">{formatMinutes(d.overtimeMinutes)}</span>
-                      ) : "-"}
+                      {d.overtimeMinutes > 0 ? <span className="text-emerald-500">{formatMinutes(d.overtimeMinutes)}</span> : "-"}
                     </TableCell>
                     <TableCell className="font-mono text-xs">
-                      {d.deficitMinutes > 0 ? (
-                        <span className="text-amber-500">{formatMinutes(d.deficitMinutes)}</span>
-                      ) : "-"}
+                      {d.deficitMinutes > 0 ? <span className="text-amber-500">{formatMinutes(d.deficitMinutes)}</span> : "-"}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">
-                        {d.status.map((s, i) => (
-                          <StatusBadge key={i} status={s} />
-                        ))}
+                        {d.status.map((s, i) => <StatusBadge key={i} status={s} />)}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -229,7 +257,7 @@ export default function EmployeeDetail() {
                   <span className="font-mono text-xs text-muted-foreground min-w-[80px]">{d.date}</span>
                   <span className="text-xs min-w-[60px]">{d.dayName}</span>
                   <div className="flex gap-1 flex-wrap">
-                    {d.status.filter(s => s !== "Normal").map((s, j) => (
+                    {d.status.filter(s => s !== "Normal" && s !== "Off" && s !== "Izinli").map((s, j) => (
                       <StatusBadge key={j} status={s} />
                     ))}
                   </div>

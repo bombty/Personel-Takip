@@ -1,9 +1,10 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { processAttendanceData } from "./processor";
 import multer from "multer";
 import * as XLSX from "xlsx";
+import bcrypt from "bcryptjs";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -14,9 +15,8 @@ function safeStr(val: any): string {
 
 function detectColumns(headers: any[]): Record<string, number> {
   const mapping: Record<string, number> = {};
-  const maxCols = headers.length;
   const lowerHeaders: string[] = [];
-  for (let i = 0; i < maxCols; i++) {
+  for (let i = 0; i < headers.length; i++) {
     lowerHeaders.push(safeStr(headers[i]));
   }
 
@@ -49,23 +49,35 @@ function detectColumns(headers: any[]): Record<string, number> {
 
   if (mapping.enNo === undefined) {
     for (let i = 0; i < lowerHeaders.length; i++) {
-      if (lowerHeaders[i] === "enno" || lowerHeaders[i] === "no") {
-        mapping.enNo = i;
-        break;
-      }
+      if (lowerHeaders[i] === "enno" || lowerHeaders[i] === "no") { mapping.enNo = i; break; }
     }
   }
-
   if (mapping.name === undefined) {
     for (let i = 0; i < lowerHeaders.length; i++) {
-      if (lowerHeaders[i] === "name") {
-        mapping.name = i;
-        break;
-      }
+      if (lowerHeaders[i] === "name") { mapping.name = i; break; }
     }
   }
 
   return mapping;
+}
+
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: "Oturum acilmamis" });
+  }
+  next();
+}
+
+function requireRole(...roles: string[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Oturum acilmamis" });
+    }
+    if (!roles.includes(req.session.role!)) {
+      return res.status(403).json({ error: "Yetkiniz yok" });
+    }
+    next();
+  };
 }
 
 export async function registerRoutes(
@@ -75,12 +87,50 @@ export async function registerRoutes(
 
   await storage.initDefaults();
 
-  app.get("/api/settings", async (_req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Kullanici adi ve sifre gerekli" });
+    }
+    const user = await storage.getUserByUsername(username);
+    if (!user) {
+      return res.status(401).json({ error: "Kullanici bulunamadi" });
+    }
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      return res.status(401).json({ error: "Yanlis sifre" });
+    }
+    req.session.userId = user.id;
+    req.session.username = user.username;
+    req.session.role = user.role;
+    req.session.displayName = user.displayName;
+    res.json({ id: user.id, username: user.username, displayName: user.displayName, role: user.role });
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy(() => {
+      res.json({ success: true });
+    });
+  });
+
+  app.get("/api/auth/me", (req, res) => {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Oturum acilmamis" });
+    }
+    res.json({
+      id: req.session.userId,
+      username: req.session.username,
+      displayName: req.session.displayName,
+      role: req.session.role,
+    });
+  });
+
+  app.get("/api/settings", requireRole("yonetim"), async (_req, res) => {
     const s = await storage.getSettings();
     res.json(s);
   });
 
-  app.post("/api/settings", async (req, res) => {
+  app.post("/api/settings", requireRole("yonetim"), async (req, res) => {
     const entries = Object.entries(req.body as Record<string, string>);
     for (const [key, value] of entries) {
       await storage.upsertSetting(key, String(value));
@@ -89,57 +139,131 @@ export async function registerRoutes(
     res.json(s);
   });
 
-  app.get("/api/holidays", async (_req, res) => {
-    const h = await storage.getHolidays();
-    res.json(h);
+  app.get("/api/holidays", requireAuth, async (_req, res) => {
+    res.json(await storage.getHolidays());
   });
 
-  app.post("/api/holidays", async (req, res) => {
-    const h = await storage.createHoliday(req.body);
-    res.json(h);
+  app.post("/api/holidays", requireAuth, async (req, res) => {
+    res.json(await storage.createHoliday(req.body));
   });
 
-  app.delete("/api/holidays/:id", async (req, res) => {
+  app.delete("/api/holidays/:id", requireAuth, async (req, res) => {
     await storage.deleteHoliday(parseInt(req.params.id));
     res.json({ success: true });
   });
 
-  app.get("/api/employees", async (_req, res) => {
-    const e = await storage.getEmployees();
-    res.json(e);
+  app.get("/api/employees", requireAuth, async (_req, res) => {
+    res.json(await storage.getEmployees());
   });
 
-  app.get("/api/leaves", async (_req, res) => {
-    const l = await storage.getLeaves();
-    res.json(l);
+  app.post("/api/employees", requireAuth, async (req, res) => {
+    try {
+      const emp = await storage.upsertEmployee(req.body);
+      res.json(emp);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
-  app.get("/api/leaves/employee/:id", async (req, res) => {
-    const l = await storage.getLeavesByEmployee(parseInt(req.params.id));
-    res.json(l);
+  app.patch("/api/employees/:id", requireAuth, async (req, res) => {
+    const emp = await storage.updateEmployee(parseInt(req.params.id), req.body);
+    if (!emp) return res.status(404).json({ error: "Personel bulunamadi" });
+    res.json(emp);
   });
 
-  app.post("/api/leaves", async (req, res) => {
-    const l = await storage.createLeave(req.body);
-    res.json(l);
+  app.delete("/api/employees/:id", requireAuth, async (req, res) => {
+    await storage.deleteEmployee(parseInt(req.params.id));
+    res.json({ success: true });
   });
 
-  app.patch("/api/leaves/:id", async (req, res) => {
-    const l = await storage.updateLeave(parseInt(req.params.id), req.body);
-    res.json(l);
+  app.get("/api/leaves", requireAuth, async (_req, res) => {
+    res.json(await storage.getLeaves());
   });
 
-  app.delete("/api/leaves/:id", async (req, res) => {
+  app.get("/api/leaves/employee/:id", requireAuth, async (req, res) => {
+    res.json(await storage.getLeavesByEmployee(parseInt(req.params.id)));
+  });
+
+  app.post("/api/leaves", requireAuth, async (req, res) => {
+    res.json(await storage.createLeave(req.body));
+  });
+
+  app.patch("/api/leaves/:id", requireAuth, async (req, res) => {
+    res.json(await storage.updateLeave(parseInt(req.params.id), req.body));
+  });
+
+  app.delete("/api/leaves/:id", requireAuth, async (req, res) => {
     await storage.deleteLeave(parseInt(req.params.id));
     res.json({ success: true });
   });
 
-  app.get("/api/uploads", async (_req, res) => {
-    const u = await storage.getUploads();
-    res.json(u);
+  app.get("/api/seasons", requireAuth, async (_req, res) => {
+    res.json(await storage.getSeasons());
   });
 
-  app.post("/api/upload", upload.single("file"), async (req, res) => {
+  app.post("/api/seasons", requireRole("yonetim"), async (req, res) => {
+    res.json(await storage.createSeason(req.body));
+  });
+
+  app.patch("/api/seasons/:id", requireRole("yonetim"), async (req, res) => {
+    const s = await storage.updateSeason(parseInt(req.params.id), req.body);
+    if (!s) return res.status(404).json({ error: "Sezon bulunamadi" });
+    res.json(s);
+  });
+
+  app.delete("/api/seasons/:id", requireRole("yonetim"), async (req, res) => {
+    await storage.deleteSeason(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.get("/api/work-schedules", requireAuth, async (_req, res) => {
+    res.json(await storage.getWorkSchedules());
+  });
+
+  app.post("/api/work-schedules", requireAuth, async (req, res) => {
+    res.json(await storage.createWorkSchedule(req.body));
+  });
+
+  app.patch("/api/work-schedules/:id", requireAuth, async (req, res) => {
+    const s = await storage.updateWorkSchedule(parseInt(req.params.id), req.body);
+    if (!s) return res.status(404).json({ error: "Program bulunamadi" });
+    res.json(s);
+  });
+
+  app.delete("/api/work-schedules/:id", requireAuth, async (req, res) => {
+    await storage.deleteWorkSchedule(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.get("/api/weekly-assignments", requireAuth, async (req, res) => {
+    const employeeId = req.query.employeeId ? parseInt(req.query.employeeId as string) : undefined;
+    if (employeeId) {
+      res.json(await storage.getWeeklyAssignmentsByEmployee(employeeId));
+    } else {
+      res.json(await storage.getWeeklyAssignments());
+    }
+  });
+
+  app.post("/api/weekly-assignments", requireAuth, async (req, res) => {
+    const existing = await storage.getWeeklyAssignmentByWeek(req.body.employeeId, req.body.weekStartDate);
+    if (existing) {
+      res.json(await storage.updateWeeklyAssignment(existing.id, req.body));
+    } else {
+      res.json(await storage.createWeeklyAssignment(req.body));
+    }
+  });
+
+  app.patch("/api/weekly-assignments/:id", requireAuth, async (req, res) => {
+    const a = await storage.updateWeeklyAssignment(parseInt(req.params.id), req.body);
+    if (!a) return res.status(404).json({ error: "Atama bulunamadi" });
+    res.json(a);
+  });
+
+  app.get("/api/uploads", requireAuth, async (_req, res) => {
+    res.json(await storage.getUploads());
+  });
+
+  app.post("/api/upload", requireAuth, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "Dosya bulunamadi" });
@@ -255,8 +379,10 @@ export async function registerRoutes(
       for (const emp of allEmployees) {
         employeeIdMap.set(emp.id, emp.enNo);
       }
-      const allRecords = await storage.getAttendanceRecordsByUpload(uploadRecord.id);
-      const summaries = processAttendanceData(allRecords, settingsMap, holidaysList, leavesList, employeeIdMap);
+      const records = await storage.getAttendanceRecordsByUpload(uploadRecord.id);
+      const assignments = await storage.getWeeklyAssignments();
+      const schedules = await storage.getWorkSchedules();
+      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules);
 
       res.json({
         uploadId: uploadRecord.id,
@@ -273,7 +399,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/report/:uploadId", async (req, res) => {
+  app.get("/api/report/:uploadId", requireAuth, async (req, res) => {
     try {
       const uploadId = parseInt(req.params.uploadId);
       const records = await storage.getAttendanceRecordsByUpload(uploadId);
@@ -283,15 +409,16 @@ export async function registerRoutes(
       const allEmployees = await storage.getEmployees();
       const employeeIdMap = new Map<number, number>();
       for (const emp of allEmployees) { employeeIdMap.set(emp.id, emp.enNo); }
-      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap);
-
+      const assignments = await storage.getWeeklyAssignments();
+      const schedules = await storage.getWorkSchedules();
+      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules);
       res.json({ summaries });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.get("/api/export/:uploadId", async (req, res) => {
+  app.get("/api/export/:uploadId", requireAuth, async (req, res) => {
     try {
       const uploadId = parseInt(req.params.uploadId);
       const records = await storage.getAttendanceRecordsByUpload(uploadId);
@@ -301,7 +428,9 @@ export async function registerRoutes(
       const allEmployees = await storage.getEmployees();
       const employeeIdMap = new Map<number, number>();
       for (const emp of allEmployees) { employeeIdMap.set(emp.id, emp.enNo); }
-      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap);
+      const assignments = await storage.getWeeklyAssignments();
+      const schedules = await storage.getWorkSchedules();
+      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules);
 
       const wb = XLSX.utils.book_new();
 
@@ -315,6 +444,8 @@ export async function registerRoutes(
         "Eksik (dk)": s.totalDeficitMinutes,
         "Gec Kalma (gun)": s.lateDays,
         "Erken Cikis (gun)": s.earlyLeaveDays,
+        "Off Gunleri": s.offDays,
+        "Izin Gunleri": s.leaveDays,
         "Sorun Sayisi": s.issueCount,
       }));
       const ws1 = XLSX.utils.json_to_sheet(summaryData);
@@ -328,6 +459,7 @@ export async function registerRoutes(
             "Sicil No": s.enNo,
             "Tarih": d.date,
             "Gun": d.dayName,
+            "Vardiya": d.scheduleName || "",
             "1. Giris": d.pairs[0]?.in || "",
             "1. Cikis": d.pairs[0]?.out || "",
             "2. Giris": d.pairs[1]?.in || "",
@@ -337,7 +469,8 @@ export async function registerRoutes(
             "Mesai (dk)": d.overtimeMinutes,
             "Eksik (dk)": d.deficitMinutes,
             "Maas Carpani": d.salaryMultiplier,
-            "Izinli": d.isOnLeave ? "Evet" : "",
+            "Off": d.isOffDay ? "Evet" : "",
+            "Izinli": d.isOnLeave ? d.leaveType || "Evet" : "",
             "Durum": d.status.join(", "),
           });
         }
@@ -349,13 +482,8 @@ export async function registerRoutes(
       for (const s of summaries) {
         for (const d of s.dailyReports) {
           for (const st of d.status) {
-            if (st !== "Normal") {
-              issueData.push({
-                "Personel": s.name,
-                "Tarih": d.date,
-                "Gun": d.dayName,
-                "Sorun": st,
-              });
+            if (st !== "Normal" && st !== "Off" && st !== "Izinli") {
+              issueData.push({ "Personel": s.name, "Tarih": d.date, "Gun": d.dayName, "Sorun": st });
             }
           }
         }
@@ -364,10 +492,18 @@ export async function registerRoutes(
       XLSX.utils.book_append_sheet(wb, ws3, "Tutarsizliklar");
 
       const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", `attachment; filename=PDKS_Rapor_${uploadId}.xlsx`);
       res.send(buffer);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/clear-data", requireRole("yonetim"), async (_req, res) => {
+    try {
+      await storage.clearAllData();
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

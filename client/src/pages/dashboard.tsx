@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import {
   Users,
@@ -12,6 +14,9 @@ import {
   Timer,
   LogOut,
   BarChart3,
+  CalendarOff,
+  CalendarCheck,
+  Download,
 } from "lucide-react";
 import {
   BarChart,
@@ -22,9 +27,10 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import type { ProcessingResult, EmployeeSummary } from "@shared/schema";
+import type { EmployeeSummary } from "@shared/schema";
 import { Input } from "@/components/ui/input";
 import { useState, useMemo } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Table,
   TableBody,
@@ -85,16 +91,20 @@ export default function Dashboard() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<keyof EmployeeSummary>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [selectedUploadId, setSelectedUploadId] = useState<string>("");
+  const { isYonetim } = useAuth();
 
   const { data: uploads } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
 
-  const latestUploadId = uploads && uploads.length > 0
-    ? Math.max(...uploads.map((u: any) => u.id))
-    : null;
+  const activeUploadId = useMemo(() => {
+    if (selectedUploadId) return parseInt(selectedUploadId);
+    if (uploads && uploads.length > 0) return Math.max(...uploads.map((u: any) => u.id));
+    return null;
+  }, [uploads, selectedUploadId]);
 
   const { data: reportData, isLoading } = useQuery<{ summaries: EmployeeSummary[] }>({
-    queryKey: ["/api/report", latestUploadId],
-    enabled: !!latestUploadId,
+    queryKey: ["/api/report", activeUploadId],
+    enabled: !!activeUploadId,
   });
 
   const summaries = reportData?.summaries || [];
@@ -109,7 +119,9 @@ export default function Dashboard() {
     const totalLate = summaries.reduce((s, e) => s + e.lateDays, 0);
     const totalEarlyLeave = summaries.reduce((s, e) => s + e.earlyLeaveDays, 0);
     const totalIssues = summaries.reduce((s, e) => s + e.issueCount, 0);
-    return { totalPersonnel, totalWork, avgDaily, totalOvertime, totalDeficit, totalLate, totalEarlyLeave, totalIssues };
+    const totalOff = summaries.reduce((s, e) => s + e.offDays, 0);
+    const totalLeave = summaries.reduce((s, e) => s + e.leaveDays, 0);
+    return { totalPersonnel, totalWork, avgDaily, totalOvertime, totalDeficit, totalLate, totalEarlyLeave, totalIssues, totalOff, totalLeave };
   }, [summaries]);
 
   const filteredSummaries = useMemo(() => {
@@ -145,7 +157,7 @@ export default function Dashboard() {
     }
   }
 
-  if (!latestUploadId) {
+  if (!uploads || uploads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8">
         <div className="text-center max-w-md">
@@ -183,19 +195,44 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-6 overflow-auto h-full">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Personel devam durumu genel gorunum</p>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Personel devam durumu genel gorunum</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Select value={selectedUploadId || String(activeUploadId || "")} onValueChange={setSelectedUploadId}>
+            <SelectTrigger className="w-[260px]" data-testid="select-upload">
+              <SelectValue placeholder="Yukleme sec..." />
+            </SelectTrigger>
+            <SelectContent>
+              {uploads?.map((u: any) => (
+                <SelectItem key={u.id} value={String(u.id)}>
+                  {u.fileName} ({u.totalRecords} kayit)
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {isYonetim && activeUploadId && (
+            <a href={`/api/export/${activeUploadId}`} target="_blank" rel="noreferrer">
+              <Button variant="outline" size="sm" data-testid="button-export">
+                <Download className="h-4 w-4 mr-1" /> Excel
+              </Button>
+            </a>
+          )}
+        </div>
       </div>
 
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <StatCard title="Personel" value={stats.totalPersonnel} icon={Users} />
           <StatCard title="Ort. Gunluk" value={formatMinutes(Math.round(stats.avgDaily))} icon={Clock} />
           <StatCard title="Toplam Mesai" value={formatMinutes(stats.totalOvertime)} icon={TrendingUp} variant="success" />
           <StatCard title="Toplam Eksik" value={formatMinutes(stats.totalDeficit)} icon={TrendingDown} variant="warning" />
           <StatCard title="Gec Kalma" value={`${stats.totalLate} gun`} icon={Timer} variant="warning" />
           <StatCard title="Erken Cikis" value={`${stats.totalEarlyLeave} gun`} icon={LogOut} variant="warning" />
+          <StatCard title="Off Gunleri" value={stats.totalOff} icon={CalendarOff} />
+          <StatCard title="Izin Gunleri" value={stats.totalLeave} icon={CalendarCheck} />
           <StatCard title="Sorun Sayisi" value={stats.totalIssues} icon={AlertTriangle} variant="danger" />
           <StatCard title="Toplam Calisma" value={formatMinutes(stats.totalWork)} icon={BarChart3} />
         </div>
@@ -257,61 +294,39 @@ export default function Dashboard() {
                   <TableHead className="cursor-pointer select-none" onClick={() => handleSort("name")} data-testid="th-name">
                     Personel {sortKey === "name" ? (sortDir === "asc" ? "^" : "v") : ""}
                   </TableHead>
-                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("enNo")}>
-                    Sicil
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("workDays")}>
-                    Is Gunu
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("avgDailyMinutes")}>
-                    Ort. Gunluk
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("totalOvertimeMinutes")}>
-                    Mesai
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("totalDeficitMinutes")}>
-                    Eksik
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("lateDays")}>
-                    Gec
-                  </TableHead>
-                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("issueCount")}>
-                    Sorun
-                  </TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("enNo")}>Sicil</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("workDays")}>Is Gunu</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("avgDailyMinutes")}>Ort. Gunluk</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("totalOvertimeMinutes")}>Mesai</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("totalDeficitMinutes")}>Eksik</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("lateDays")}>Gec</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("offDays")}>Off</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("leaveDays")}>Izin</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("issueCount")}>Sorun</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredSummaries.map((s) => (
                   <TableRow key={s.enNo} className="hover-elevate cursor-pointer" data-testid={`row-employee-${s.enNo}`}>
                     <TableCell>
-                      <Link href={`/employees/${s.enNo}`} className="font-medium">
-                        {s.name}
-                      </Link>
+                      <Link href={`/employees/${s.enNo}`} className="font-medium">{s.name}</Link>
                     </TableCell>
                     <TableCell className="font-mono text-muted-foreground">{s.enNo}</TableCell>
                     <TableCell className="font-mono">{s.workDays}</TableCell>
                     <TableCell className="font-mono">{formatMinutes(s.avgDailyMinutes)}</TableCell>
                     <TableCell className="font-mono">
-                      {s.totalOvertimeMinutes > 0 ? (
-                        <span className="text-emerald-500">{formatMinutes(s.totalOvertimeMinutes)}</span>
-                      ) : "-"}
+                      {s.totalOvertimeMinutes > 0 ? <span className="text-emerald-500">{formatMinutes(s.totalOvertimeMinutes)}</span> : "-"}
                     </TableCell>
                     <TableCell className="font-mono">
-                      {s.totalDeficitMinutes > 0 ? (
-                        <span className="text-amber-500">{formatMinutes(s.totalDeficitMinutes)}</span>
-                      ) : "-"}
+                      {s.totalDeficitMinutes > 0 ? <span className="text-amber-500">{formatMinutes(s.totalDeficitMinutes)}</span> : "-"}
                     </TableCell>
                     <TableCell className="font-mono">
-                      {s.lateDays > 0 ? (
-                        <span className="text-amber-500">{s.lateDays}</span>
-                      ) : "-"}
+                      {s.lateDays > 0 ? <span className="text-amber-500">{s.lateDays}</span> : "-"}
                     </TableCell>
+                    <TableCell className="font-mono">{s.offDays || "-"}</TableCell>
+                    <TableCell className="font-mono">{s.leaveDays || "-"}</TableCell>
                     <TableCell>
-                      {s.issueCount > 0 ? (
-                        <Badge variant="destructive">{s.issueCount}</Badge>
-                      ) : (
-                        <Badge variant="secondary">0</Badge>
-                      )}
+                      {s.issueCount > 0 ? <Badge variant="destructive">{s.issueCount}</Badge> : <Badge variant="secondary">0</Badge>}
                     </TableCell>
                   </TableRow>
                 ))}

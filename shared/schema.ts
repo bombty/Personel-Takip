@@ -1,7 +1,19 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, date, boolean, real, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, date, boolean, real, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  password: text("password").notNull(),
+  displayName: text("display_name").notNull(),
+  role: text("role").notNull(),
+});
+
+export const insertUserSchema = createInsertSchema(users).omit({ id: true });
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type User = typeof users.$inferSelect;
 
 export const employees = pgTable("employees", {
   id: serial("id").primaryKey(),
@@ -9,6 +21,8 @@ export const employees = pgTable("employees", {
   name: text("name").notNull(),
   department: text("department"),
   position: text("position"),
+  phone: text("phone"),
+  hireDate: date("hire_date"),
   active: boolean("active").default(true),
 });
 
@@ -82,18 +96,63 @@ export const insertLeaveSchema = createInsertSchema(leaves).omit({ id: true });
 export type InsertLeave = z.infer<typeof insertLeaveSchema>;
 export type Leave = typeof leaves.$inferSelect;
 
+export const seasons = pgTable("seasons", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  startMonth: integer("start_month").notNull(),
+  endMonth: integer("end_month").notNull(),
+  weekdayOpen: text("weekday_open").notNull(),
+  weekdayClose: text("weekday_close").notNull(),
+  weekendOpen: text("weekend_open").notNull(),
+  weekendClose: text("weekend_close").notNull(),
+  weekendDays: text("weekend_days").default("5,6"),
+});
+
+export const insertSeasonSchema = createInsertSchema(seasons).omit({ id: true });
+export type InsertSeason = z.infer<typeof insertSeasonSchema>;
+export type Season = typeof seasons.$inferSelect;
+
+export const workSchedules = pgTable("work_schedules", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  breakMinutes: integer("break_minutes").default(60),
+});
+
+export const insertWorkScheduleSchema = createInsertSchema(workSchedules).omit({ id: true });
+export type InsertWorkSchedule = z.infer<typeof insertWorkScheduleSchema>;
+export type WorkSchedule = typeof workSchedules.$inferSelect;
+
+export const weeklyAssignments = pgTable("weekly_assignments", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull(),
+  weekStartDate: date("week_start_date").notNull(),
+  monday: text("monday"),
+  tuesday: text("tuesday"),
+  wednesday: text("wednesday"),
+  thursday: text("thursday"),
+  friday: text("friday"),
+  saturday: text("saturday"),
+  sunday: text("sunday"),
+});
+
+export const insertWeeklyAssignmentSchema = createInsertSchema(weeklyAssignments).omit({ id: true });
+export type InsertWeeklyAssignment = z.infer<typeof insertWeeklyAssignmentSchema>;
+export type WeeklyAssignment = typeof weeklyAssignments.$inferSelect;
+
 export const defaultSettings: Record<string, string> = {
-  workStartTime: "08:30",
-  workEndTime: "17:30",
+  workStartTime: "08:00",
+  workEndTime: "00:00",
   dailyWorkMinutes: "540",
   breakMinutes: "60",
   overtimeThreshold: "15",
   lateToleranceMinutes: "5",
   earlyLeaveToleranceMinutes: "5",
-  workDaysPerWeek: "5",
-  weekendDays: "6,0",
+  workDaysPerWeek: "6",
+  weekendDays: "",
   autoDeductBreak: "true",
-  nightShiftSupport: "false",
+  nightShiftSupport: "true",
   minValidWorkMinutes: "30",
   maxValidWorkMinutes: "960",
 };
@@ -116,6 +175,8 @@ export interface DailyReport {
   salaryMultiplier: number;
   isOnLeave: boolean;
   leaveType?: string;
+  isOffDay: boolean;
+  scheduleName?: string;
 }
 
 export interface EmployeeSummary {
@@ -130,6 +191,8 @@ export interface EmployeeSummary {
   lateDays: number;
   earlyLeaveDays: number;
   issueCount: number;
+  offDays: number;
+  leaveDays: number;
   dailyReports: DailyReport[];
 }
 
@@ -144,9 +207,11 @@ export interface ProcessingResult {
 export const leaveTypes = [
   { value: "annual", label: "Yillik Izin" },
   { value: "sick", label: "Hastalik Izni" },
+  { value: "report", label: "Rapor" },
   { value: "maternity", label: "Dogum Izni" },
   { value: "marriage", label: "Evlilik Izni" },
   { value: "bereavement", label: "Vefat Izni" },
   { value: "unpaid", label: "Ucretsiz Izin" },
+  { value: "special", label: "Ozel Izin" },
   { value: "other", label: "Diger" },
 ];

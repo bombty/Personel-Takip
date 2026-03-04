@@ -2,6 +2,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 
 const app = express();
 const httpServer = createServer(app);
@@ -11,6 +13,25 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+declare module "express-session" {
+  interface SessionData {
+    userId: number;
+    username: string;
+    role: string;
+    displayName: string;
+  }
+}
+
+const PgStore = connectPgSimple(session);
+
+app.use(session({
+  store: new PgStore({ conString: process.env.DATABASE_URL, createTableIfMissing: true }),
+  secret: process.env.SESSION_SECRET || "dospresso-pdks-secret-key",
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 24 * 60 * 60 * 1000, httpOnly: true, secure: false, sameSite: "lax" },
+}));
 
 app.use(
   express.json({

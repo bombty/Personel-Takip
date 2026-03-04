@@ -67,7 +67,7 @@ export default function UploadPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const res = await fetch("/api/upload", { method: "POST", body: formData, credentials: "include" });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Yukleme hatasi");

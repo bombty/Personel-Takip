@@ -6,6 +6,8 @@ import {
   Settings,
   CalendarDays,
   Coffee,
+  Clock,
+  LogOut,
 } from "lucide-react";
 import {
   Sidebar,
@@ -19,17 +21,24 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/use-auth";
 
-const menuItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Veri Yukle", url: "/upload", icon: Upload },
-  { title: "Personeller", url: "/employees", icon: Users },
-  { title: "Izin Yonetimi", url: "/leaves", icon: CalendarDays },
-  { title: "Ayarlar", url: "/settings", icon: Settings },
+const allMenuItems = [
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, roles: ["supervisor", "yonetim"] },
+  { title: "Veri Yukle", url: "/upload", icon: Upload, roles: ["supervisor", "yonetim"] },
+  { title: "Personeller", url: "/employees", icon: Users, roles: ["supervisor", "yonetim"] },
+  { title: "Vardiya Plani", url: "/shifts", icon: Clock, roles: ["supervisor", "yonetim"] },
+  { title: "Izin Yonetimi", url: "/leaves", icon: CalendarDays, roles: ["supervisor", "yonetim"] },
+  { title: "Ayarlar", url: "/settings", icon: Settings, roles: ["yonetim"] },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { user, logout } = useAuth();
+
+  const menuItems = allMenuItems.filter(item => user && item.roles.includes(user.role));
 
   return (
     <Sidebar>
@@ -70,8 +79,32 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4">
-        <p className="text-xs text-muted-foreground text-center">PDKS v1.0</p>
+      <SidebarFooter className="p-4 space-y-3">
+        {user && (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
+                <span className="text-xs font-bold text-primary">{user.displayName[0]}</span>
+              </div>
+              <div>
+                <p className="text-xs font-medium" data-testid="text-username">{user.displayName}</p>
+                <Badge variant="outline" className="text-[10px] px-1 py-0" data-testid="text-role">
+                  {user.role === "yonetim" ? "Yonetim" : "Supervisor"}
+                </Badge>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={logout}
+              data-testid="button-logout"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground text-center">PDKS v2.0</p>
       </SidebarFooter>
     </Sidebar>
   );
