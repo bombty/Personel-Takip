@@ -3,6 +3,8 @@ import type { AttendanceRecord, DailyReport, EmployeeSummary, Holiday, Leave, We
 const TURKISH_DAYS = ["Pazar", "Pazartesi", "Sali", "Carsamba", "Persembe", "Cuma", "Cumartesi"];
 const DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 
+const NIGHT_CUTOFF_HOUR = 7;
+
 function formatTime(d: Date): string {
   const h = String(d.getHours()).padStart(2, "0");
   const m = String(d.getMinutes()).padStart(2, "0");
@@ -14,6 +16,12 @@ function localDateKey(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function prevDateKey(dateKey: string): string {
+  const d = new Date(dateKey + "T12:00:00");
+  d.setDate(d.getDate() - 1);
+  return localDateKey(d);
 }
 
 function minutesSinceMidnight(d: Date): number {
@@ -31,6 +39,15 @@ function getMonday(dateStr: string): string {
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   return localDateKey(d);
+}
+
+function assignWorkDay(dt: Date): string {
+  const hour = dt.getHours();
+  const calendarDate = localDateKey(dt);
+  if (hour < NIGHT_CUTOFF_HOUR) {
+    return prevDateKey(calendarDate);
+  }
+  return calendarDate;
 }
 
 interface LeaveInfo {
@@ -105,6 +122,68 @@ function getScheduleForDay(
   };
 }
 
+function buildPairsFromPunches(filteredPunches: Date[]): { pairs: { in: string; out: string }[]; workMinutes: number; breakDeducted: boolean } {
+  const count = filteredPunches.length;
+  const pairs: { in: string; out: string }[] = [];
+  let workMinutes = 0;
+  let breakDeducted = false;
+
+  if (count === 0) {
+    return { pairs, workMinutes: 0, breakDeducted: false };
+  }
+
+  if (count === 1) {
+    pairs.push({ in: formatTime(filteredPunches[0]), out: "--:--" });
+    return { pairs, workMinutes: 0, breakDeducted: false };
+  }
+
+  if (count === 2) {
+    pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[1]) });
+    workMinutes = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
+    return { pairs, workMinutes, breakDeducted: false };
+  }
+
+  if (count === 3) {
+    const gap01 = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
+    const gap12 = (filteredPunches[2].getTime() - filteredPunches[1].getTime()) / 60000;
+
+    if (gap01 < gap12) {
+      pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[1]) });
+      pairs.push({ in: formatTime(filteredPunches[2]), out: "--:--" });
+      workMinutes = gap01;
+    } else {
+      pairs.push({ in: formatTime(filteredPunches[0]), out: "--:--" });
+      pairs.push({ in: formatTime(filteredPunches[1]), out: formatTime(filteredPunches[2]) });
+      workMinutes = gap12;
+    }
+    return { pairs, workMinutes, breakDeducted: false };
+  }
+
+  if (count === 4) {
+    pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[1]) });
+    pairs.push({ in: formatTime(filteredPunches[2]), out: formatTime(filteredPunches[3]) });
+    const seg1 = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
+    const seg2 = (filteredPunches[3].getTime() - filteredPunches[2].getTime()) / 60000;
+    workMinutes = seg1 + seg2;
+    breakDeducted = true;
+    return { pairs, workMinutes, breakDeducted };
+  }
+
+  for (let i = 0; i < count - 1; i += 2) {
+    if (i + 1 < count) {
+      pairs.push({ in: formatTime(filteredPunches[i]), out: formatTime(filteredPunches[i + 1]) });
+      workMinutes += (filteredPunches[i + 1].getTime() - filteredPunches[i].getTime()) / 60000;
+    } else {
+      pairs.push({ in: formatTime(filteredPunches[i]), out: "--:--" });
+    }
+  }
+  if (count % 2 !== 0) {
+    pairs.push({ in: formatTime(filteredPunches[count - 1]), out: "--:--" });
+  }
+  breakDeducted = count >= 4;
+  return { pairs, workMinutes, breakDeducted };
+}
+
 export function processAttendanceData(
   records: AttendanceRecord[],
   settingsMap: Record<string, string>,
@@ -148,8 +227,6 @@ export function processAttendanceData(
     enNoToEmployeeId.set(enNo, empId);
   }
 
-  const assignmentsByEmpId = assignments;
-
   const holidayDates = new Map<string, Holiday>();
   for (const h of holidaysList) {
     holidayDates.set(h.date, h);
@@ -176,15 +253,21 @@ export function processAttendanceData(
     const empId = enNoToEmployeeId.get(enNo);
 
     const empAssignments = empId
-      ? assignmentsByEmpId.filter(a => a.employeeId === empId)
+      ? assignments.filter(a => a.employeeId === empId)
       : [];
 
-    const byDate = new Map<string, Date[]>();
+    const byWorkDay = new Map<string, { punches: Date[]; hasNightCrossing: boolean }>();
     for (const rec of data.records) {
       const dt = new Date(rec.dateTime);
-      const dateKey = localDateKey(dt);
-      if (!byDate.has(dateKey)) byDate.set(dateKey, []);
-      byDate.get(dateKey)!.push(dt);
+      const workDay = assignWorkDay(dt);
+      if (!byWorkDay.has(workDay)) {
+        byWorkDay.set(workDay, { punches: [], hasNightCrossing: false });
+      }
+      const entry = byWorkDay.get(workDay)!;
+      entry.punches.push(dt);
+      if (dt.getHours() < NIGHT_CUTOFF_HOUR) {
+        entry.hasNightCrossing = true;
+      }
     }
 
     const dailyReports: DailyReport[] = [];
@@ -198,10 +281,13 @@ export function processAttendanceData(
     let offDays = 0;
     let leaveDays = 0;
 
-    const sortedDates = Array.from(byDate.keys()).sort();
+    const sortedDates = Array.from(byWorkDay.keys()).sort();
 
     for (const dateKey of sortedDates) {
-      const punches = byDate.get(dateKey)!.sort((a, b) => a.getTime() - b.getTime());
+      const dayData = byWorkDay.get(dateKey)!;
+      const allPunches = dayData.punches.sort((a, b) => a.getTime() - b.getTime());
+      const nightCrossing = dayData.hasNightCrossing;
+
       const dateObj = new Date(dateKey + "T00:00:00");
       const dayOfWeek = dateObj.getDay();
       const dayName = TURKISH_DAYS[dayOfWeek];
@@ -218,40 +304,49 @@ export function processAttendanceData(
       let salaryMultiplier = 1;
 
       const filteredPunches: Date[] = [];
-      for (let i = 0; i < punches.length; i++) {
+      for (let i = 0; i < allPunches.length; i++) {
         if (i > 0) {
-          const diff = (punches[i].getTime() - punches[i - 1].getTime()) / 60000;
+          const diff = (allPunches[i].getTime() - allPunches[i - 1].getTime()) / 60000;
           if (diff < 2) continue;
         }
-        filteredPunches.push(punches[i]);
+        filteredPunches.push(allPunches[i]);
       }
 
-      const pairs: { in: string; out: string }[] = [];
+      const punchCount = filteredPunches.length;
       const statuses: string[] = [];
 
-      for (let i = 0; i < filteredPunches.length; i += 2) {
-        if (i + 1 < filteredPunches.length) {
-          pairs.push({ in: formatTime(filteredPunches[i]), out: formatTime(filteredPunches[i + 1]) });
-        } else {
-          pairs.push({ in: formatTime(filteredPunches[i]), out: "--:--" });
-        }
-      }
+      const { pairs, workMinutes: dayWorkMinutes, breakDeducted } = buildPairsFromPunches(filteredPunches);
 
-      if (filteredPunches.length % 2 !== 0) {
+      if (punchCount === 1) {
+        statuses.push("Tek Okutma");
+        issueCount++;
+      } else if (punchCount === 3) {
+        statuses.push("Eksik Okutma");
+        issueCount++;
+      } else if (punchCount >= 5) {
+        statuses.push("Coklu Okutma");
+        issueCount++;
+      } else if (punchCount % 2 !== 0 && punchCount > 1) {
         statuses.push("Eksik Kayit");
         issueCount++;
       }
 
-      let dayWorkMinutes = 0;
-      for (let i = 0; i < filteredPunches.length - 1; i += 2) {
-        const inTime = filteredPunches[i];
-        const outTime = filteredPunches[i + 1];
-        if (outTime) {
-          dayWorkMinutes += (outTime.getTime() - inTime.getTime()) / 60000;
-        }
+      if (punchCount === 2 && dayWorkMinutes > 360) {
+        statuses.push("Molasiz");
       }
 
-      let netWork = autoDeductBreak ? Math.max(0, dayWorkMinutes - schedule.breakMinutes) : dayWorkMinutes;
+      if (nightCrossing) {
+        statuses.push("Gece Gecisi");
+      }
+
+      let netWork: number;
+      if (breakDeducted) {
+        netWork = dayWorkMinutes;
+      } else if (autoDeductBreak && punchCount >= 2) {
+        netWork = Math.max(0, dayWorkMinutes - schedule.breakMinutes);
+      } else {
+        netWork = dayWorkMinutes;
+      }
 
       if (dayWorkMinutes > 0 && dayWorkMinutes < minValidWork) {
         statuses.push("Cok Kisa");
@@ -259,10 +354,6 @@ export function processAttendanceData(
       }
       if (dayWorkMinutes > maxValidWork) {
         statuses.push("Cok Uzun");
-        issueCount++;
-      }
-      if (filteredPunches.length > 4) {
-        statuses.push("Coklu Okutma");
         issueCount++;
       }
 
@@ -275,7 +366,7 @@ export function processAttendanceData(
         statuses.push("Izinli");
         leaveDays++;
       } else if (isOff) {
-        if (filteredPunches.length > 0) {
+        if (punchCount > 0) {
           statuses.push("Off Gunu Calisma");
           overtimeMin = netWork;
           salaryMultiplier = 1.5;
@@ -283,44 +374,65 @@ export function processAttendanceData(
           statuses.push("Off");
         }
         offDays++;
-      } else if (filteredPunches.length > 0) {
+      } else if (punchCount > 0) {
         workDays++;
-        const firstIn = minutesSinceMidnight(filteredPunches[0]);
-        if (firstIn > schedule.startMinutes + lateTolerance) {
-          lateMinutes = firstIn - schedule.startMinutes;
-          statuses.push("Gec");
-          lateDays++;
+
+        const firstPunch = filteredPunches[0];
+        const firstPunchHour = firstPunch.getHours();
+        const firstPunchMin = minutesSinceMidnight(firstPunch);
+
+        if (firstPunchHour >= NIGHT_CUTOFF_HOUR) {
+          if (firstPunchMin > schedule.startMinutes + lateTolerance) {
+            lateMinutes = firstPunchMin - schedule.startMinutes;
+            statuses.push("Gec");
+            lateDays++;
+          }
         }
 
-        if (filteredPunches.length >= 2) {
-          const lastOut = minutesSinceMidnight(filteredPunches[filteredPunches.length - 1]);
-          const effectiveEnd = schedule.crossesMidnight ? (schedule.endMinutes || 1440) : schedule.endMinutes;
-          if (filteredPunches.length % 2 === 0 && !schedule.crossesMidnight && lastOut < effectiveEnd - earlyLeaveTolerance) {
-            earlyLeaveMin = effectiveEnd - lastOut;
-            statuses.push("Erken Cikis");
-            earlyLeaveDays++;
+        if (punchCount >= 2) {
+          const lastPunch = filteredPunches[filteredPunches.length - 1];
+          const lastPunchHour = lastPunch.getHours();
+          const lastPunchMin = minutesSinceMidnight(lastPunch);
+          const lastIsNight = lastPunchHour < NIGHT_CUTOFF_HOUR;
+
+          if (schedule.crossesMidnight || nightCrossing) {
+            if (lastIsNight) {
+              const effectiveEnd = schedule.endMinutes;
+              if (effectiveEnd > 0 && lastPunchMin < effectiveEnd - earlyLeaveTolerance) {
+                earlyLeaveMin = effectiveEnd - lastPunchMin;
+                statuses.push("Erken Cikis");
+                earlyLeaveDays++;
+              }
+            }
+          } else if (!lastIsNight) {
+            const effectiveEnd = schedule.endMinutes === 0 ? 1440 : schedule.endMinutes;
+            if (lastPunchMin < effectiveEnd - earlyLeaveTolerance) {
+              earlyLeaveMin = effectiveEnd - lastPunchMin;
+              statuses.push("Erken Cikis");
+              earlyLeaveDays++;
+            }
           }
         }
 
         if (netWork > schedule.expectedNetWork + overtimeThreshold) {
           overtimeMin = netWork - schedule.expectedNetWork;
           statuses.push("Mesai");
-        } else if (netWork < schedule.expectedNetWork && filteredPunches.length % 2 === 0) {
+        } else if (netWork < schedule.expectedNetWork && punchCount >= 2 && punchCount % 2 === 0) {
           deficitMin = schedule.expectedNetWork - netWork;
         }
       }
 
-      if (isHoliday && filteredPunches.length > 0) {
+      if (isHoliday && punchCount > 0) {
         statuses.push("Tatil Calisma");
         overtimeMin = netWork;
         salaryMultiplier = holiday?.salaryMultiplier || 2;
       }
 
-      if (isHoliday && filteredPunches.length === 0) {
+      if (isHoliday && punchCount === 0) {
         salaryMultiplier = holiday?.salaryMultiplier || 2;
       }
 
-      if (statuses.length === 0 && filteredPunches.length > 0) {
+      if (statuses.length === 0 && punchCount > 0) {
         statuses.push("Normal");
       }
 
@@ -348,6 +460,8 @@ export function processAttendanceData(
         leaveType: leaveInfo?.type,
         isOffDay: isOff,
         scheduleName: schedule.name !== "Varsayilan" ? schedule.name : undefined,
+        punchCount,
+        nightCrossing,
       });
     }
 

@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Clock, TrendingUp, TrendingDown, Timer, LogOut, AlertTriangle, CalendarOff, CalendarCheck } from "lucide-react";
+import { ArrowLeft, Clock, TrendingUp, TrendingDown, Timer, LogOut, AlertTriangle, CalendarOff, CalendarCheck, Moon } from "lucide-react";
 import type { EmployeeSummary, DailyReport } from "@shared/schema";
 import { useState, useMemo } from "react";
 import {
@@ -36,6 +36,11 @@ function StatusBadge({ status }: { status: string }) {
     "Cok Kisa": "bg-red-500/10 text-red-500 border-red-500/20",
     "Cok Uzun": "bg-red-500/10 text-red-500 border-red-500/20",
     "Coklu Okutma": "bg-red-500/10 text-red-500 border-red-500/20",
+    "Tek Okutma": "bg-red-500/10 text-red-500 border-red-500/20",
+    "Eksik Okutma": "bg-orange-500/10 text-orange-500 border-orange-500/20",
+    "Molasiz": "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
+    "Gece Gecisi": "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+    "Off Gunu Calisma": "bg-purple-500/10 text-purple-400 border-purple-500/20",
     "Izinli": "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
     "Off": "bg-gray-500/10 text-gray-400 border-gray-500/20",
   };
@@ -192,6 +197,7 @@ export default function EmployeeDetail() {
                   <TableHead>Tarih</TableHead>
                   <TableHead>Gun</TableHead>
                   <TableHead className="font-mono">Vardiya</TableHead>
+                  <TableHead className="font-mono text-center">Okutma</TableHead>
                   <TableHead className="font-mono">1. Giris</TableHead>
                   <TableHead className="font-mono">1. Cikis</TableHead>
                   <TableHead className="font-mono">2. Giris</TableHead>
@@ -203,13 +209,20 @@ export default function EmployeeDetail() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {employee.dailyReports.map((d: DailyReport) => (
+                {employee.dailyReports.map((d: DailyReport) => {
+                  const hasIssue = d.status.some(s => ["Tek Okutma", "Eksik Okutma", "Coklu Okutma", "Eksik Kayit", "Cok Kisa", "Cok Uzun"].includes(s));
+                  return (
                   <TableRow
                     key={d.date}
-                    className={d.isOffDay ? "opacity-40" : d.isOnLeave ? "bg-cyan-500/5" : ""}
+                    className={`${d.isOffDay ? "opacity-40" : d.isOnLeave ? "bg-cyan-500/5" : hasIssue ? "bg-red-500/5" : ""}`}
                     data-testid={`row-day-${d.date}`}
                   >
-                    <TableCell className="font-mono text-xs">{d.date}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      <span className="flex items-center gap-1">
+                        {d.date}
+                        {d.nightCrossing && <Moon className="h-3 w-3 text-indigo-400" />}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-xs">{d.dayName}</TableCell>
                     <TableCell className="text-xs">
                       {d.scheduleName ? (
@@ -217,6 +230,11 @@ export default function EmployeeDetail() {
                       ) : d.isOffDay ? (
                         <Badge variant="secondary" className="text-[10px]">OFF</Badge>
                       ) : "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-center" data-testid={`text-punch-count-${d.date}`}>
+                      <span className={`${d.punchCount === 4 ? "text-emerald-500" : d.punchCount === 1 || d.punchCount === 3 || d.punchCount >= 5 ? "text-red-500 font-bold" : ""}`}>
+                        {d.punchCount}
+                      </span>
                     </TableCell>
                     <TableCell className="font-mono text-xs">{d.pairs[0]?.in || "-"}</TableCell>
                     <TableCell className="font-mono text-xs">{d.pairs[0]?.out || "-"}</TableCell>
@@ -235,7 +253,8 @@ export default function EmployeeDetail() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

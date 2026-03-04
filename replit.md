@@ -34,11 +34,14 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 
 ## Key Features
 - Session-based authentication with 2 roles (supervisor, yonetim)
-- Excel/CSV/Numbers upload with automatic column detection
+- Excel/CSV/Numbers upload with automatic column detection + headerless file fallback
 - Seasonal cafe hours: Kış (Nov-Mar) weekday 08:00-00:00, Cuma-Cmt 08:00-02:00; Yaz (Apr-Oct) weekday 08:00-01:00, Cuma-Cmt 08:00-02:00
 - Flexible weekly off days per employee (no fixed weekend - cafe is open every day)
 - Work schedule templates (Açılış, Kapanış, Tam Gün, Yarım Gün) with shift assignment
-- Punch pairing algorithm (chronological entry/exit matching)
+- **4-punch model pairing:** Giriş → Mola Çıkış → Mola Dönüş → Mesai Bitiş (break auto-deducted)
+- **Midnight crossing support:** Punches at 00:00-06:59 attributed to previous work day (for night shift closings)
+- **Enhanced inconsistency detection:** Tek Okutma, Eksik Okutma, Çoklu Okutma, Molasız, Gece Geçişi
+- DailyReport includes punchCount and nightCrossing fields for frontend visualization
 - Overtime, deficit, late, early leave calculations
 - Holiday calendar with salary multipliers
 - Leave management system

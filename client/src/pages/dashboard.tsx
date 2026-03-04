@@ -302,7 +302,7 @@ export default function Dashboard() {
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("lateDays")}>Gec</TableHead>
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("offDays")}>Off</TableHead>
                   <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("leaveDays")}>Izin</TableHead>
-                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("issueCount")}>Sorun</TableHead>
+                  <TableHead className="cursor-pointer select-none font-mono" onClick={() => handleSort("issueCount")}>Tutarsiz</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

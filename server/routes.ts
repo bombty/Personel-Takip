@@ -61,6 +61,115 @@ function detectColumns(headers: any[]): Record<string, number> {
   return mapping;
 }
 
+function isDateTimeString(val: any): boolean {
+  if (val == null) return false;
+  const s = String(val).trim();
+  return /^\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}(:\d{2})?/.test(s);
+}
+
+function detectColumnsFromData(rows: any[][]): { mapping: Record<string, number>; hasHeader: boolean } | null {
+  const dataRows = rows.filter(r => r && r.length >= 3);
+  if (dataRows.length < 2) return null;
+  const sampleRows = dataRows.slice(0, Math.min(10, dataRows.length));
+
+  const maxCols = Math.max(...sampleRows.map(r => r.length));
+  const colAnalysis: { dateCount: number; intCount: number; strCount: number; total: number }[] = [];
+
+  for (let c = 0; c < maxCols; c++) {
+    const analysis = { dateCount: 0, intCount: 0, strCount: 0, total: 0 };
+    for (const row of sampleRows) {
+      if (c >= row.length || row[c] == null) continue;
+      analysis.total++;
+      const val = row[c];
+      if (isDateTimeString(val)) {
+        analysis.dateCount++;
+      } else if (typeof val === "number" && Number.isInteger(val) && val > 0 && val < 1000) {
+        analysis.intCount++;
+      } else if (typeof val === "string" && val.trim().length > 0 && !/^\d+$/.test(val.trim())) {
+        analysis.strCount++;
+      } else if (typeof val === "number") {
+        if (val > 40000 && val < 60000) {
+          analysis.dateCount++;
+        } else {
+          analysis.intCount++;
+        }
+      }
+    }
+    colAnalysis.push(analysis);
+  }
+
+  const mapping: Record<string, number> = {};
+
+  for (let c = 0; c < colAnalysis.length; c++) {
+    const a = colAnalysis[c];
+    if (a.total === 0) continue;
+    const dateRatio = a.dateCount / a.total;
+    if (dateRatio > 0.7 && mapping.dateTime === undefined) {
+      mapping.dateTime = c;
+    }
+  }
+
+  for (let c = 0; c < colAnalysis.length; c++) {
+    const a = colAnalysis[c];
+    if (a.total === 0 || c === mapping.dateTime) continue;
+    const strRatio = a.strCount / a.total;
+    if (strRatio > 0.7 && mapping.name === undefined) {
+      mapping.name = c;
+    }
+  }
+
+  let bestEnNoCol = -1;
+  let bestEnNoUniqueCount = 0;
+  for (let c = 0; c < colAnalysis.length; c++) {
+    const a = colAnalysis[c];
+    if (a.total === 0 || c === mapping.dateTime || c === mapping.name) continue;
+    const intRatio = a.intCount / a.total;
+    if (intRatio > 0.7) {
+      const vals = sampleRows.map(r => r[c]).filter(v => v != null && typeof v === "number");
+      const maxVal = Math.max(...vals.map(Number));
+      const uniqueVals = new Set(vals).size;
+      if (maxVal < 500 && maxVal > 1 && uniqueVals > bestEnNoUniqueCount) {
+        bestEnNoCol = c;
+        bestEnNoUniqueCount = uniqueVals;
+      }
+    }
+  }
+  if (bestEnNoCol >= 0) {
+    mapping.enNo = bestEnNoCol;
+  }
+
+  let hasHeader = false;
+  const firstRow = rows[0];
+  if (firstRow) {
+    if (firstRow.length < 3) {
+      hasHeader = true;
+    } else {
+      let firstRowIsData = true;
+      if (mapping.dateTime !== undefined) {
+        const dtVal = firstRow[mapping.dateTime];
+        if (dtVal === undefined || dtVal === null || (typeof dtVal === "string" && !isDateTimeString(dtVal))) {
+          firstRowIsData = false;
+        }
+      }
+      if (mapping.enNo !== undefined) {
+        const enVal = firstRow[mapping.enNo];
+        if (enVal === undefined || enVal === null || (typeof enVal === "string" && isNaN(parseInt(enVal)))) {
+          firstRowIsData = false;
+        }
+      }
+      if (!firstRowIsData) {
+        hasHeader = true;
+      }
+    }
+  }
+
+  if (mapping.name !== undefined && mapping.dateTime !== undefined && mapping.enNo !== undefined) {
+    return { mapping, hasHeader };
+  }
+
+  return null;
+}
+
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session?.userId) {
     return res.status(401).json({ error: "Oturum acilmamis" });
@@ -283,7 +392,16 @@ export async function registerRoutes(
       for (let i = 0; i < headerRow.length; i++) {
         headers.push(headerRow[i] != null ? String(headerRow[i]) : "");
       }
-      const columnMapping = detectColumns(headers);
+      let columnMapping = detectColumns(headers);
+      let dataStartRow = 1;
+
+      if (columnMapping.name === undefined || columnMapping.dateTime === undefined || columnMapping.enNo === undefined) {
+        const fallback = detectColumnsFromData(rawData);
+        if (fallback) {
+          columnMapping = { ...columnMapping, ...fallback.mapping };
+          dataStartRow = fallback.hasHeader ? 1 : 0;
+        }
+      }
 
       if (columnMapping.name === undefined || columnMapping.dateTime === undefined || columnMapping.enNo === undefined) {
         const missing: string[] = [];
@@ -299,7 +417,7 @@ export async function registerRoutes(
 
       const uploadRecord = await storage.createUpload({
         fileName: req.file.originalname,
-        totalRecords: rawData.length - 1,
+        totalRecords: rawData.length - dataStartRow,
         totalEmployees: 0,
         status: "processing",
       });
@@ -308,7 +426,7 @@ export async function registerRoutes(
       const employeeMap = new Map<number, string>();
       const errors: string[] = [];
 
-      for (let i = 1; i < rawData.length; i++) {
+      for (let i = dataStartRow; i < rawData.length; i++) {
         const row = rawData[i];
         if (!row || row.length === 0) continue;
 

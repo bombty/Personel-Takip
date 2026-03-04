@@ -177,6 +177,8 @@ export interface DailyReport {
   leaveType?: string;
   isOffDay: boolean;
   scheduleName?: string;
+  punchCount: number;
+  nightCrossing: boolean;
 }
 
 export interface EmployeeSummary {
