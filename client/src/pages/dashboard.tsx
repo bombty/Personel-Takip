@@ -119,6 +119,8 @@ export default function Dashboard() {
   const [sortKey, setSortKey] = useState<keyof EmployeeSummary>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [selectedUploadId, setSelectedUploadId] = useState<string>("");
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string>("");
+  const [dataSource, setDataSource] = useState<"upload" | "period">("upload");
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [selectedEmployee, setSelectedEmployee] = useState<string>("all");
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
@@ -127,16 +129,24 @@ export default function Dashboard() {
   const { isYonetim } = useAuth();
 
   const { data: uploads } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
+  const { data: periods } = useQuery<any[]>({ queryKey: ["/api/report-periods"] });
 
   const activeUploadId = useMemo(() => {
+    if (dataSource === "period") return null;
     if (selectedUploadId) return parseInt(selectedUploadId);
     if (uploads && uploads.length > 0) return Math.max(...uploads.map((u: any) => u.id));
     return null;
-  }, [uploads, selectedUploadId]);
+  }, [uploads, selectedUploadId, dataSource]);
+
+  const activePeriodId = useMemo(() => {
+    if (dataSource !== "period") return null;
+    if (selectedPeriodId) return parseInt(selectedPeriodId);
+    return null;
+  }, [selectedPeriodId, dataSource]);
 
   const { data: reportData, isLoading } = useQuery<{ summaries: EmployeeSummary[] }>({
-    queryKey: ["/api/report", activeUploadId],
-    enabled: !!activeUploadId,
+    queryKey: activePeriodId ? ["/api/report/period", activePeriodId] : ["/api/report", activeUploadId],
+    enabled: !!(activeUploadId || activePeriodId),
   });
 
   const allSummaries = reportData?.summaries || [];
@@ -329,18 +339,47 @@ export default function Dashboard() {
           <p className="text-sm text-muted-foreground">Personel devam durumu genel gorunum</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <Select value={selectedUploadId || String(activeUploadId || "")} onValueChange={setSelectedUploadId}>
-            <SelectTrigger className="w-[220px]" data-testid="select-upload">
-              <SelectValue placeholder="Yukleme sec..." />
-            </SelectTrigger>
-            <SelectContent>
-              {uploads?.map((u: any) => (
-                <SelectItem key={u.id} value={String(u.id)}>
-                  {u.fileName} ({u.totalRecords} kayit)
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center border rounded-md overflow-hidden" data-testid="toggle-data-source">
+            <button
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${dataSource === "upload" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+              onClick={() => setDataSource("upload")}
+            >
+              Yukleme
+            </button>
+            <button
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${dataSource === "period" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+              onClick={() => setDataSource("period")}
+            >
+              Donem
+            </button>
+          </div>
+          {dataSource === "upload" ? (
+            <Select value={selectedUploadId || String(activeUploadId || "")} onValueChange={setSelectedUploadId}>
+              <SelectTrigger className="w-[220px]" data-testid="select-upload">
+                <SelectValue placeholder="Yukleme sec..." />
+              </SelectTrigger>
+              <SelectContent>
+                {uploads?.map((u: any) => (
+                  <SelectItem key={u.id} value={String(u.id)}>
+                    {u.fileName} ({u.totalRecords} kayit)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Select value={selectedPeriodId} onValueChange={setSelectedPeriodId}>
+              <SelectTrigger className="w-[220px]" data-testid="select-period">
+                <SelectValue placeholder="Donem sec..." />
+              </SelectTrigger>
+              <SelectContent>
+                {periods?.map((p: any) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.name} ({p.status === "final" ? "Final" : "Taslak"})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Select value={selectedMonth} onValueChange={setSelectedMonth}>
             <SelectTrigger className="w-[140px]" data-testid="select-month">
               <Calendar className="h-3.5 w-3.5 mr-1 text-muted-foreground" />

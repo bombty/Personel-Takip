@@ -5,6 +5,7 @@ import {
   Users,
   Settings,
   CalendarDays,
+  CalendarCheck,
   Coffee,
   Clock,
   LogOut,
@@ -31,6 +32,7 @@ const allMenuItems = [
   { title: "Personeller", url: "/employees", icon: Users, roles: ["supervisor", "yonetim"] },
   { title: "Vardiya Plani", url: "/shifts", icon: Clock, roles: ["supervisor", "yonetim"] },
   { title: "Izin Yonetimi", url: "/leaves", icon: CalendarDays, roles: ["supervisor", "yonetim"] },
+  { title: "Donemler", url: "/periods", icon: CalendarCheck, roles: ["supervisor", "yonetim"] },
   { title: "Ayarlar", url: "/settings", icon: Settings, roles: ["yonetim"] },
 ];
 
@@ -104,7 +106,7 @@ export function AppSidebar() {
             </Button>
           </div>
         )}
-        <p className="text-xs text-muted-foreground text-center">PDKS v2.0</p>
+        <p className="text-xs text-muted-foreground text-center">PDKS v3.0</p>
       </SidebarFooter>
     </Sidebar>
   );

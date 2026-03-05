@@ -122,6 +122,7 @@ export const workSchedules = pgTable("work_schedules", {
   startTime: text("start_time").notNull(),
   endTime: text("end_time").notNull(),
   breakMinutes: integer("break_minutes").default(60),
+  shortCode: text("short_code"),
 });
 
 export const insertWorkScheduleSchema = createInsertSchema(workSchedules).omit({ id: true });
@@ -144,6 +145,21 @@ export const weeklyAssignments = pgTable("weekly_assignments", {
 export const insertWeeklyAssignmentSchema = createInsertSchema(weeklyAssignments).omit({ id: true });
 export type InsertWeeklyAssignment = z.infer<typeof insertWeeklyAssignmentSchema>;
 export type WeeklyAssignment = typeof weeklyAssignments.$inferSelect;
+
+export const reportPeriods = pgTable("report_periods", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  uploadIds: text("upload_ids"),
+  status: text("status").default("draft"),
+  createdAt: timestamp("created_at").defaultNow(),
+  finalizedAt: timestamp("finalized_at"),
+});
+
+export const insertReportPeriodSchema = createInsertSchema(reportPeriods).omit({ id: true, createdAt: true, finalizedAt: true });
+export type InsertReportPeriod = z.infer<typeof insertReportPeriodSchema>;
+export type ReportPeriod = typeof reportPeriods.$inferSelect;
 
 export const defaultSettings: Record<string, string> = {
   workStartTime: "08:00",
@@ -230,6 +246,7 @@ export interface EmployeeSummary {
   monthlyTotalHours: number;
   monthlyExpectedHours: number;
   performancePercent: number;
+  missingAssignmentWeeks?: string[];
 }
 
 export interface ProcessingResult {

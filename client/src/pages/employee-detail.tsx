@@ -152,6 +152,7 @@ export default function EmployeeDetail() {
   }
 
   const issues = employee.dailyReports.filter(d => d.status.some(s => s !== "Normal" && s !== "Off" && s !== "Gece Gecisi" && !isLeaveStatus(s)));
+  const missingWeeks = employee.missingAssignmentWeeks || [];
 
   return (
     <div className="p-6 space-y-6 overflow-auto h-full">
@@ -225,6 +226,24 @@ export default function EmployeeDetail() {
           </Select>
         </div>
       </div>
+
+      {missingWeeks.length > 0 && (
+        <div className="flex items-start gap-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3" data-testid="banner-missing-assignments">
+          <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Eksik Vardiya Atamasi</p>
+            <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+              Bu personel icin su haftalarda vardiya atamasi girilmemis:{" "}
+              {missingWeeks.map(w => w.slice(5)).join(", ")}
+            </p>
+            <Link href="/shifts">
+              <Button variant="outline" size="sm" className="mt-2 h-7 text-xs border-amber-300" data-testid="link-go-shifts">
+                Vardiya Plani'na Git
+              </Button>
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
         <Card>

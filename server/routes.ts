@@ -3,11 +3,19 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { processAttendanceData } from "./processor";
 import { analyzeGeneralReport, analyzeEmployeeReport } from "./ai-analyzer";
+import { parseScheduleFile } from "./schedule-parser";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import bcrypt from "bcryptjs";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+function localDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 function safeStr(val: any): string {
   if (val == null) return "";
@@ -572,6 +580,26 @@ export async function registerRoutes(
       const schedules = await storage.getWorkSchedules();
       const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules, allEmployees);
 
+      let suggestedPeriod = null;
+      try {
+        if (attendanceRows.length > 0) {
+          const dates = attendanceRows.map((r: any) => new Date(r.dateTime).getTime()).filter((t: number) => !isNaN(t));
+          if (dates.length > 0) {
+            const uploadMinDate = new Date(Math.min(...dates));
+            const uploadMaxDate = new Date(Math.max(...dates));
+            const uploadMinStr = localDateKey(uploadMinDate);
+            const uploadMaxStr = localDateKey(uploadMaxDate);
+            const draftPeriods = await storage.getReportPeriods();
+            for (const p of draftPeriods) {
+              if (p.status === "draft" && p.startDate <= uploadMaxStr && p.endDate >= uploadMinStr) {
+                suggestedPeriod = p;
+                break;
+              }
+            }
+          }
+        }
+      } catch (_e) {}
+
       res.json({
         uploadId: uploadRecord.id,
         totalRecords: attendanceRows.length,
@@ -581,6 +609,7 @@ export async function registerRoutes(
         summaries,
         headers,
         columnMapping,
+        suggestedPeriod,
       });
     } catch (err: any) {
       console.error("Upload error:", err);
@@ -738,6 +767,312 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("AI employee analysis error:", err);
       res.status(500).json({ error: err.message || "AI analiz hatasi" });
+    }
+  });
+
+  app.get("/api/report-periods", requireAuth, async (_req, res) => {
+    try {
+      const periods = await storage.getReportPeriods();
+      res.json(periods);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/report-periods", requireRole("supervisor", "yonetim"), async (req, res) => {
+    try {
+      const { name, startDate, endDate } = req.body;
+      if (!name || !startDate || !endDate) {
+        return res.status(400).json({ error: "name, startDate ve endDate alanlari zorunludur" });
+      }
+      const period = await storage.createReportPeriod({ name, startDate, endDate });
+      res.json(period);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/report-periods/:id", requireRole("supervisor", "yonetim"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const period = await storage.getReportPeriodById(id);
+      if (!period) return res.status(404).json({ error: "Donem bulunamadi" });
+      if (period.status === "final") return res.status(400).json({ error: "Kilitli donem guncellenemez" });
+      const updated = await storage.updateReportPeriod(id, req.body);
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/report-periods/:id", requireRole("supervisor", "yonetim"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteReportPeriod(id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/report-periods/:id/finalize", requireRole("supervisor", "yonetim"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const period = await storage.getReportPeriodById(id);
+      if (!period) return res.status(404).json({ error: "Donem bulunamadi" });
+      if (period.status === "final") return res.status(400).json({ error: "Donem zaten kilitli" });
+      const finalized = await storage.finalizeReportPeriod(id);
+      res.json(finalized);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/report/period/:periodId", requireAuth, async (req, res) => {
+    try {
+      const periodId = parseInt(req.params.periodId);
+      const period = await storage.getReportPeriodById(periodId);
+      if (!period) return res.status(404).json({ error: "Donem bulunamadi" });
+
+      const uploadIdList = period.uploadIds
+        ? period.uploadIds.split(",").map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+        : [];
+
+      let allRecords: any[] = [];
+      for (const uid of uploadIdList) {
+        const recs = await storage.getAttendanceRecordsByUpload(uid);
+        allRecords = allRecords.concat(recs);
+      }
+
+      const settingsMap = await storage.getSettings();
+      const holidaysList = await storage.getHolidays();
+      const leavesList = await storage.getLeaves();
+      const allEmployees = await storage.getEmployees();
+      const employeeIdMap = new Map<number, number>();
+      for (const emp of allEmployees) { employeeIdMap.set(emp.id, emp.enNo); }
+      const assignments = await storage.getWeeklyAssignments();
+      const schedules = await storage.getWorkSchedules();
+      const summaries = processAttendanceData(allRecords, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules, allEmployees);
+      res.json({ period, summaries });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/export/period/:periodId", requireAuth, async (req, res) => {
+    try {
+      const periodId = parseInt(req.params.periodId);
+      const period = await storage.getReportPeriodById(periodId);
+      if (!period) return res.status(404).json({ error: "Donem bulunamadi" });
+
+      const uploadIdList = period.uploadIds
+        ? period.uploadIds.split(",").map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+        : [];
+
+      let allRecords: any[] = [];
+      for (const uid of uploadIdList) {
+        const recs = await storage.getAttendanceRecordsByUpload(uid);
+        allRecords = allRecords.concat(recs);
+      }
+
+      const settingsMap = await storage.getSettings();
+      const holidaysList = await storage.getHolidays();
+      const leavesList = await storage.getLeaves();
+      const allEmployees = await storage.getEmployees();
+      const employeeIdMap = new Map<number, number>();
+      for (const emp of allEmployees) { employeeIdMap.set(emp.id, emp.enNo); }
+      const assignments = await storage.getWeeklyAssignments();
+      const schedules = await storage.getWorkSchedules();
+      const summaries = processAttendanceData(allRecords, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules, allEmployees);
+
+      const wb = XLSX.utils.book_new();
+
+      const summaryData = summaries.map(s => ({
+        "Personel": s.name,
+        "Sicil No": s.enNo,
+        "Tip": s.employmentType === "full_time" ? "Tam Zamanli" : "Yari Zamanli",
+        "Haftalik Saat": s.weeklyHoursExpected,
+        "Is Gunu": s.workDays,
+        "Toplam Calisma (dk)": s.totalWorkMinutes,
+        "Ort. Gunluk (dk)": s.avgDailyMinutes,
+        "Mesai (dk)": s.totalOvertimeMinutes,
+        "Eksik (dk)": s.totalDeficitMinutes,
+        "Gec Kalma (gun)": s.lateDays,
+        "Erken Cikis (gun)": s.earlyLeaveDays,
+        "Off Gunleri": s.offDays,
+        "Izin Gunleri": s.leaveDays,
+        "Sorun Sayisi": s.issueCount,
+        "Aylik Toplam (saat)": s.monthlyTotalHours,
+        "Aylik Beklenen (saat)": s.monthlyExpectedHours,
+        "Performans (%)": s.performancePercent,
+      }));
+      const ws1 = XLSX.utils.json_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(wb, ws1, "Personel Ozet");
+
+      const detailData: any[] = [];
+      for (const s of summaries) {
+        for (const d of s.dailyReports) {
+          detailData.push({
+            "Personel": s.name,
+            "Sicil No": s.enNo,
+            "Tarih": d.date,
+            "Gun": d.dayName,
+            "Vardiya": d.scheduleName || "",
+            "1. Giris": d.pairs[0]?.in || "",
+            "1. Cikis": d.pairs[0]?.out || "",
+            "2. Giris": d.pairs[1]?.in || "",
+            "2. Cikis": d.pairs[1]?.out || "",
+            "Toplam (dk)": d.totalWorkMinutes,
+            "Net (dk)": d.netWorkMinutes,
+            "Mesai (dk)": d.overtimeMinutes,
+            "Eksik (dk)": d.deficitMinutes,
+            "Maas Carpani": d.salaryMultiplier,
+            "Off": d.isOffDay ? "Evet" : "",
+            "Izinli": d.isOnLeave ? d.leaveType || "Evet" : "",
+            "Durum": d.status.join(", "),
+          });
+        }
+      }
+      const ws2 = XLSX.utils.json_to_sheet(detailData);
+      XLSX.utils.book_append_sheet(wb, ws2, "Gunluk Detay");
+
+      const issueData: any[] = [];
+      for (const s of summaries) {
+        for (const d of s.dailyReports) {
+          for (const st of d.status) {
+            if (st !== "Normal" && st !== "Off" && st !== "Izinli") {
+              issueData.push({ "Personel": s.name, "Tarih": d.date, "Gun": d.dayName, "Sorun": st });
+            }
+          }
+        }
+      }
+      const ws3 = XLSX.utils.json_to_sheet(issueData.length > 0 ? issueData : [{ "Bilgi": "Sorun bulunamadi" }]);
+      XLSX.utils.book_append_sheet(wb, ws3, "Tutarsizliklar");
+
+      const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=PDKS_Donem_Rapor_${periodId}.xlsx`);
+      res.send(buffer);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/upload-schedule", requireRole("supervisor", "yonetim"), upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Dosya bulunamadi" });
+      }
+
+      const weekStartDate = req.body.weekStartDate as string | undefined;
+      const overwrite = req.body.overwrite === "true" || req.body.overwrite === true;
+
+      const fileName = req.file.originalname.toLowerCase();
+      const fileType = fileName.endsWith(".csv") ? "csv" : "excel";
+
+      const schedules = await storage.getWorkSchedules();
+      const parseResult = parseScheduleFile(req.file.buffer, fileType, schedules);
+
+      if (parseResult.rows.length === 0) {
+        return res.status(400).json({
+          error: "Dosyadan hicbir personel satiri okunamadi",
+          warnings: parseResult.warnings,
+        });
+      }
+
+      const allEmployees = await storage.getEmployees();
+
+      interface ConflictInfo {
+        employeeName: string;
+        enNo: number;
+        weekStartDate: string;
+        existingId: number;
+      }
+
+      const conflicts: ConflictInfo[] = [];
+      const warnings = [...parseResult.warnings];
+      let applied = 0;
+
+      for (const row of parseResult.rows) {
+        let matchedEmployee = null;
+
+        if (row.sicilNo) {
+          matchedEmployee = allEmployees.find(e => e.enNo === row.sicilNo);
+        }
+
+        if (!matchedEmployee && row.name) {
+          const normalizedRowName = row.name.toLowerCase().replace(/[çÇğĞıİöÖşŞüÜ]/g, (ch: string) => {
+            const map: Record<string, string> = {
+              "ç": "c", "Ç": "C", "ğ": "g", "Ğ": "G", "ı": "i", "İ": "I",
+              "ö": "o", "Ö": "O", "ş": "s", "Ş": "S", "ü": "u", "Ü": "U",
+            };
+            return map[ch] || ch;
+          }).trim();
+
+          matchedEmployee = allEmployees.find(e => {
+            const empNormalized = e.name.toLowerCase().replace(/[çÇğĞıİöÖşŞüÜ]/g, (ch: string) => {
+              const map: Record<string, string> = {
+                "ç": "c", "Ç": "C", "ğ": "g", "Ğ": "G", "ı": "i", "İ": "I",
+                "ö": "o", "Ö": "O", "ş": "s", "Ş": "S", "ü": "u", "Ü": "U",
+              };
+              return map[ch] || ch;
+            }).trim();
+            return empNormalized === normalizedRowName;
+          });
+        }
+
+        if (!matchedEmployee) {
+          warnings.push(`Personel eslestirilemedi: "${row.identifier}"`);
+          continue;
+        }
+
+        const effectiveWeekStart = row.weekStartDate || weekStartDate;
+        if (!effectiveWeekStart) {
+          warnings.push(`Hafta baslangic tarihi eksik: "${row.identifier}". Format A icin weekStartDate parametresi gerekli.`);
+          continue;
+        }
+
+        const existing = await storage.getWeeklyAssignmentByWeek(matchedEmployee.id, effectiveWeekStart);
+
+        if (existing && !overwrite) {
+          conflicts.push({
+            employeeName: matchedEmployee.name,
+            enNo: matchedEmployee.enNo,
+            weekStartDate: effectiveWeekStart,
+            existingId: existing.id,
+          });
+          continue;
+        }
+
+        const assignmentData = {
+          employeeId: matchedEmployee.id,
+          weekStartDate: effectiveWeekStart,
+          monday: row.monday,
+          tuesday: row.tuesday,
+          wednesday: row.wednesday,
+          thursday: row.thursday,
+          friday: row.friday,
+          saturday: row.saturday,
+          sunday: row.sunday,
+        };
+
+        if (existing) {
+          await storage.updateWeeklyAssignment(existing.id, assignmentData);
+        } else {
+          await storage.createWeeklyAssignment(assignmentData);
+        }
+        applied++;
+      }
+
+      res.json({
+        success: true,
+        applied,
+        warnings,
+        conflicts,
+      });
+    } catch (err: any) {
+      console.error("Schedule upload error:", err);
+      res.status(500).json({ error: err.message || "Sift plani yukleme hatasi" });
     }
   });
 

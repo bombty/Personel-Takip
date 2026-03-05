@@ -337,17 +337,60 @@ function buildWeeklyBreakdown(dailyReports: DailyReport[], weeklyExpectedMinutes
 }
 
 function calculateMonthlyExpectedHours(
-  dailyReports: DailyReport[],
+  employeeId: number | undefined,
+  enNo: number,
+  monthStart: string,
+  monthEnd: string,
+  assignments: WeeklyAssignment[],
+  leaveLookup: Map<string, LeaveInfo>,
+  holidayDates: Map<string, Holiday>,
+  schedulesMap: Map<number, WorkSchedule>,
+  defaultSchedule: ScheduleInfo,
   dailyExpectedMinutes: number,
   hireDate?: string | null,
   leaveDate?: string | null
 ): number {
-  const workDays = dailyReports.filter(r => {
-    if (r.isOffDay || r.isOnLeave) return false;
-    if (hireDate && r.date < hireDate) return false;
-    if (leaveDate && r.date > leaveDate) return false;
-    return true;
-  }).length;
+  let workDays = 0;
+  const current = new Date(monthStart + "T00:00:00");
+  const end = new Date(monthEnd + "T00:00:00");
+
+  while (current <= end) {
+    const dateStr = localDateKey(current);
+    const dayOfWeek = current.getDay();
+
+    if (hireDate && dateStr < hireDate) {
+      current.setDate(current.getDate() + 1);
+      continue;
+    }
+
+    if (leaveDate && dateStr > leaveDate) {
+      current.setDate(current.getDate() + 1);
+      continue;
+    }
+
+    if (employeeId) {
+      const { isOff } = getScheduleForDay(employeeId, dateStr, dayOfWeek, assignments, schedulesMap, defaultSchedule);
+      if (isOff) {
+        current.setDate(current.getDate() + 1);
+        continue;
+      }
+    }
+
+    if (holidayDates.has(dateStr)) {
+      current.setDate(current.getDate() + 1);
+      continue;
+    }
+
+    const leaveKey = `${enNo}_${dateStr}`;
+    if (leaveLookup.has(leaveKey)) {
+      current.setDate(current.getDate() + 1);
+      continue;
+    }
+
+    workDays++;
+    current.setDate(current.getDate() + 1);
+  }
+
   return Math.round((workDays * dailyExpectedMinutes) / 60 * 10) / 10;
 }
 
@@ -489,11 +532,22 @@ export function processAttendanceData(
     }
 
     if (empId && punchMinDate && punchMaxDate) {
-      const cur = new Date(punchMinDate + "T00:00:00");
-      const end = new Date(punchMaxDate + "T00:00:00");
-      while (cur <= end) {
+      const msDate = new Date(punchMinDate + "T00:00:00");
+      const meDate = new Date(punchMaxDate + "T00:00:00");
+      const fillStart = new Date(msDate.getFullYear(), msDate.getMonth(), 1);
+      const fillEnd = new Date(meDate.getFullYear(), meDate.getMonth() + 1, 0);
+      const cur = new Date(fillStart);
+      while (cur <= fillEnd) {
         const dk = localDateKey(cur);
         if (!byWorkDay.has(dk)) {
+          if (empRecord?.hireDate && dk < empRecord.hireDate) {
+            cur.setDate(cur.getDate() + 1);
+            continue;
+          }
+          if (empRecord?.leaveDate && dk > empRecord.leaveDate) {
+            cur.setDate(cur.getDate() + 1);
+            continue;
+          }
           const dayOfWeek = cur.getDay();
           const { isOff } = getScheduleForDay(empId, dk, dayOfWeek, empAssignments, schedulesMap, defaultSchedule);
           if (isOff) {
@@ -735,18 +789,61 @@ export function processAttendanceData(
     const totalWeeklyOvertime = weeklyBreakdown.reduce((sum, w) => sum + w.overtimeMinutes, 0);
     const totalWeeklyDeficit = weeklyBreakdown.reduce((sum, w) => sum + w.deficitMinutes, 0);
 
+    const missingAssignmentWeeks: string[] = [];
+    if (empId && punchMinDate && punchMaxDate) {
+      const maStart = new Date(punchMinDate + "T00:00:00");
+      const maEnd = new Date(punchMaxDate + "T00:00:00");
+      const maMonStart = new Date(maStart.getFullYear(), maStart.getMonth(), 1);
+      const maMonEnd = new Date(maEnd.getFullYear(), maEnd.getMonth() + 1, 0);
+      const maCur = new Date(maMonStart);
+      const checkedWeeks = new Set<string>();
+      while (maCur <= maMonEnd) {
+        const mon = getMonday(localDateKey(maCur));
+        if (!checkedWeeks.has(mon)) {
+          checkedWeeks.add(mon);
+          const weekAssignment = empAssignments.find(a => a.weekStartDate === mon);
+          if (!weekAssignment) {
+            missingAssignmentWeeks.push(mon);
+          }
+        }
+        maCur.setDate(maCur.getDate() + 1);
+      }
+    }
+
     const monthlyTotalHours = Math.round(totalWorkMin / 60 * 10) / 10;
 
     const netWorkTotal = dailyReports.reduce((sum, r) => sum + r.netWorkMinutes, 0);
     const monthlyTotalNetHours = Math.round(netWorkTotal / 60 * 10) / 10;
 
     const dailyExpectedForMonthly = hasAnyAssignment ? (weeklyExpectedMinutes / 6) : dailyWorkMinutes;
-    const monthlyExpectedHours = calculateMonthlyExpectedHours(
-      dailyReports,
-      dailyExpectedForMonthly,
-      empRecord?.hireDate,
-      empRecord?.leaveDate
-    );
+
+    let monthStartStr = punchMinDate || "";
+    let monthEndStr = punchMaxDate || "";
+    if (monthStartStr && monthEndStr) {
+      const msDate = new Date(monthStartStr + "T00:00:00");
+      const meDate = new Date(monthEndStr + "T00:00:00");
+      const realMonthStart = new Date(msDate.getFullYear(), msDate.getMonth(), 1);
+      const realMonthEnd = new Date(meDate.getFullYear(), meDate.getMonth() + 1, 0);
+      monthStartStr = localDateKey(realMonthStart);
+      monthEndStr = localDateKey(realMonthEnd);
+    }
+
+    const monthlyExpectedHours = monthStartStr && monthEndStr
+      ? calculateMonthlyExpectedHours(
+          empId,
+          enNo,
+          monthStartStr,
+          monthEndStr,
+          empAssignments,
+          leaveLookup,
+          holidayDates,
+          schedulesMap,
+          defaultSchedule,
+          dailyExpectedForMonthly,
+          empRecord?.hireDate,
+          empRecord?.leaveDate
+        )
+      : 0;
 
     const performancePercent = monthlyExpectedHours > 0
       ? Math.round((monthlyTotalNetHours / monthlyExpectedHours) * 100)
@@ -781,6 +878,7 @@ export function processAttendanceData(
       monthlyTotalHours,
       monthlyExpectedHours,
       performancePercent,
+      missingAssignmentWeeks: missingAssignmentWeeks.length > 0 ? missingAssignmentWeeks : undefined,
     });
   }
 

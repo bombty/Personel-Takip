@@ -13,6 +13,7 @@ import EmployeeDetail from "@/pages/employee-detail";
 import SettingsPage from "@/pages/settings";
 import LeavesPage from "@/pages/leaves";
 import ShiftsPage from "@/pages/shifts";
+import PeriodsPage from "@/pages/periods";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
@@ -27,6 +28,7 @@ function Router() {
       <Route path="/settings" component={SettingsPage} />
       <Route path="/leaves" component={LeavesPage} />
       <Route path="/shifts" component={ShiftsPage} />
+      <Route path="/periods" component={PeriodsPage} />
       <Route component={NotFound} />
     </Switch>
   );

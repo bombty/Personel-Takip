@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import {
   users, type User, type InsertUser,
@@ -12,6 +12,7 @@ import {
   seasons, type Season, type InsertSeason,
   workSchedules, type WorkSchedule, type InsertWorkSchedule,
   weeklyAssignments, type WeeklyAssignment, type InsertWeeklyAssignment,
+  reportPeriods, type ReportPeriod, type InsertReportPeriod,
   defaultSettings,
 } from "@shared/schema";
 
@@ -62,6 +63,13 @@ export interface IStorage {
   getWeeklyAssignmentByWeek(employeeId: number, weekStartDate: string): Promise<WeeklyAssignment | undefined>;
   createWeeklyAssignment(assignment: InsertWeeklyAssignment): Promise<WeeklyAssignment>;
   updateWeeklyAssignment(id: number, data: Partial<InsertWeeklyAssignment>): Promise<WeeklyAssignment | undefined>;
+
+  getReportPeriods(): Promise<ReportPeriod[]>;
+  getReportPeriodById(id: number): Promise<ReportPeriod | undefined>;
+  createReportPeriod(period: InsertReportPeriod): Promise<ReportPeriod>;
+  updateReportPeriod(id: number, data: Partial<InsertReportPeriod>): Promise<ReportPeriod | undefined>;
+  deleteReportPeriod(id: number): Promise<void>;
+  finalizeReportPeriod(id: number): Promise<ReportPeriod | undefined>;
 
   clearAllData(): Promise<void>;
   initDefaults(): Promise<void>;
@@ -254,6 +262,42 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  async getReportPeriods(): Promise<ReportPeriod[]> {
+    return db.select().from(reportPeriods).orderBy(desc(reportPeriods.createdAt));
+  }
+
+  async getReportPeriodById(id: number): Promise<ReportPeriod | undefined> {
+    const result = await db.select().from(reportPeriods).where(eq(reportPeriods.id, id));
+    return result[0];
+  }
+
+  async createReportPeriod(period: InsertReportPeriod): Promise<ReportPeriod> {
+    const result = await db.insert(reportPeriods).values(period).returning();
+    return result[0];
+  }
+
+  async updateReportPeriod(id: number, data: Partial<InsertReportPeriod>): Promise<ReportPeriod | undefined> {
+    const result = await db.update(reportPeriods).set(data).where(eq(reportPeriods.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteReportPeriod(id: number): Promise<void> {
+    const period = await this.getReportPeriodById(id);
+    if (period && period.status === "draft") {
+      await db.delete(reportPeriods).where(eq(reportPeriods.id, id));
+    } else {
+      throw new Error("Only draft periods can be deleted");
+    }
+  }
+
+  async finalizeReportPeriod(id: number): Promise<ReportPeriod | undefined> {
+    const result = await db.update(reportPeriods)
+      .set({ status: "final", finalizedAt: sql`now()` })
+      .where(eq(reportPeriods.id, id))
+      .returning();
+    return result[0];
+  }
+
   async clearAllData(): Promise<void> {
     await db.delete(attendanceRecords);
     await db.delete(uploads);
@@ -299,10 +343,23 @@ export class DatabaseStorage implements IStorage {
 
     const existingSchedules = await db.select().from(workSchedules);
     if (existingSchedules.length === 0) {
-      await db.insert(workSchedules).values({ name: "Acilis Vardiyasi", startTime: "08:00", endTime: "16:00", breakMinutes: 60 });
-      await db.insert(workSchedules).values({ name: "Kapanis Vardiyasi", startTime: "16:00", endTime: "00:00", breakMinutes: 60 });
-      await db.insert(workSchedules).values({ name: "Tam Gun", startTime: "09:00", endTime: "22:00", breakMinutes: 60 });
-      await db.insert(workSchedules).values({ name: "Yarim Gun", startTime: "09:00", endTime: "14:00", breakMinutes: 30 });
+      await db.insert(workSchedules).values({ name: "Acilis Vardiyasi", startTime: "08:00", endTime: "16:00", breakMinutes: 60, shortCode: "A" });
+      await db.insert(workSchedules).values({ name: "Kapanis Vardiyasi", startTime: "16:00", endTime: "00:00", breakMinutes: 60, shortCode: "K" });
+      await db.insert(workSchedules).values({ name: "Tam Gun", startTime: "09:00", endTime: "22:00", breakMinutes: 60, shortCode: "T" });
+      await db.insert(workSchedules).values({ name: "Yarim Gun", startTime: "09:00", endTime: "14:00", breakMinutes: 30, shortCode: "Y" });
+    } else {
+      const codeMap: Record<string, string> = {
+        "Acilis Vardiyasi": "A",
+        "Kapanis Vardiyasi": "K",
+        "Tam Gun": "T",
+        "Yarim Gun": "Y",
+      };
+      for (const sched of existingSchedules) {
+        const code = codeMap[sched.name];
+        if (code && !sched.shortCode) {
+          await db.update(workSchedules).set({ shortCode: code }).where(eq(workSchedules.id, sched.id));
+        }
+      }
     }
 
     const existingHolidays = await db.select().from(holidays);
