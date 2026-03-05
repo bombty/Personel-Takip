@@ -5,6 +5,8 @@ const TURKISH_DAYS = ["Pazar", "Pazartesi", "Sali", "Carsamba", "Persembe", "Cum
 const DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 
 const NIGHT_CUTOFF_HOUR = 7;
+const STORE_CLOSED_START = 150;
+const STORE_CLOSED_END = 420;
 
 function formatTime(d: Date): string {
   const h = String(d.getHours()).padStart(2, "0");
@@ -22,6 +24,12 @@ function localDateKey(d: Date): string {
 function prevDateKey(dateKey: string): string {
   const d = new Date(dateKey + "T12:00:00");
   d.setDate(d.getDate() - 1);
+  return localDateKey(d);
+}
+
+function nextDateKey(dateKey: string): string {
+  const d = new Date(dateKey + "T12:00:00");
+  d.setDate(d.getDate() + 1);
   return localDateKey(d);
 }
 
@@ -57,9 +65,57 @@ function assignWorkDay(dt: Date): string {
   return calendarDate;
 }
 
+function crossesClosedWindow(p1: Date, p2: Date): boolean {
+  const min1 = minutesSinceMidnight(p1);
+  const min2 = minutesSinceMidnight(p2);
+  const diffMinutes = (p2.getTime() - p1.getTime()) / 60000;
+
+  if (diffMinutes < 120) return false;
+
+  const p1BeforeClosed = min1 < STORE_CLOSED_START;
+  const p2AfterClosed = min2 >= STORE_CLOSED_END;
+
+  if (p1BeforeClosed && p2AfterClosed) {
+    return true;
+  }
+
+  if (min1 < STORE_CLOSED_START && min2 < STORE_CLOSED_START && diffMinutes > 240) {
+    return true;
+  }
+
+  if (min1 >= STORE_CLOSED_END && p2AfterClosed && diffMinutes > 600) {
+    return true;
+  }
+
+  return false;
+}
+
+function splitPunchesByClosedWindow(
+  punches: Date[],
+  workDayKey: string
+): { before: Date[]; after: Date[]; wasSplit: boolean } {
+  if (punches.length < 2) return { before: punches, after: [], wasSplit: false };
+
+  const sorted = [...punches].sort((a, b) => a.getTime() - b.getTime());
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (crossesClosedWindow(sorted[i], sorted[i + 1])) {
+      return {
+        before: sorted.slice(0, i + 1),
+        after: sorted.slice(i + 1),
+        wasSplit: true,
+      };
+    }
+  }
+
+  return { before: sorted, after: [], wasSplit: false };
+}
+
 interface LeaveInfo {
   type: string;
   status: string;
+  conflictResolved: boolean;
+  leaveId: number;
 }
 
 function buildLeaveLookup(leavesList: Leave[], employeeIdMap: Map<number, number>): Map<string, LeaveInfo> {
@@ -72,7 +128,12 @@ function buildLeaveLookup(leavesList: Leave[], employeeIdMap: Map<number, number
     const end = new Date(leave.endDate + "T00:00:00");
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const key = `${enNo}_${localDateKey(d)}`;
-      lookup.set(key, { type: leave.type, status: leave.status });
+      lookup.set(key, {
+        type: leave.type,
+        status: leave.status,
+        conflictResolved: leave.conflictResolved === true,
+        leaveId: leave.id,
+      });
     }
   }
   return lookup;
@@ -130,51 +191,98 @@ function getScheduleForDay(
   };
 }
 
-function buildPairsFromPunches(filteredPunches: Date[]): { pairs: { in: string; out: string }[]; workMinutes: number; breakDeducted: boolean } {
+interface PunchResult {
+  pairs: { in: string; out: string }[];
+  workMinutes: number;
+  breakDeducted: boolean;
+  classification?: string;
+  breakMinutesActual?: number;
+  warnings: string[];
+}
+
+function buildPairsFromPunches(filteredPunches: Date[], scheduleBreakMinutes: number = 60): PunchResult {
   const count = filteredPunches.length;
   const pairs: { in: string; out: string }[] = [];
   let workMinutes = 0;
   let breakDeducted = false;
+  let classification: string | undefined;
+  let breakMinutesActual: number | undefined;
+  const warnings: string[] = [];
 
   if (count === 0) {
-    return { pairs, workMinutes: 0, breakDeducted: false };
+    return { pairs, workMinutes: 0, breakDeducted: false, warnings };
   }
 
   if (count === 1) {
     pairs.push({ in: formatTime(filteredPunches[0]), out: "--:--" });
-    return { pairs, workMinutes: 0, breakDeducted: false };
+    return { pairs, workMinutes: 0, breakDeducted: false, warnings };
   }
 
   if (count === 2) {
     pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[1]) });
     workMinutes = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
-    return { pairs, workMinutes, breakDeducted: false };
+    return { pairs, workMinutes, breakDeducted: false, warnings };
   }
 
   if (count === 3) {
     const gap01 = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
     const gap12 = (filteredPunches[2].getTime() - filteredPunches[1].getTime()) / 60000;
+    const totalBrut = (filteredPunches[2].getTime() - filteredPunches[0].getTime()) / 60000;
 
-    if (gap01 < gap12) {
+    if (totalBrut < 300) {
+      classification = "C";
+      pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[2]) });
+      workMinutes = totalBrut;
+      warnings.push("Gercek Eksik");
+    } else if (gap01 < gap12 && gap01 < 180) {
+      classification = "B";
+      const estimatedBreak = Math.min(Math.max(gap01, 30), 90);
       pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[1]) });
       pairs.push({ in: formatTime(filteredPunches[2]), out: "--:--" });
-      workMinutes = gap01;
+      workMinutes = totalBrut - estimatedBreak;
+      breakDeducted = true;
+      breakMinutesActual = Math.round(gap01);
+      warnings.push("Mola Basi Eksik");
     } else {
+      classification = "A";
+      const estimatedBreak = Math.min(Math.max(gap12, 30), 90);
       pairs.push({ in: formatTime(filteredPunches[0]), out: "--:--" });
       pairs.push({ in: formatTime(filteredPunches[1]), out: formatTime(filteredPunches[2]) });
-      workMinutes = gap12;
+      workMinutes = totalBrut - estimatedBreak;
+      breakDeducted = true;
+      breakMinutesActual = Math.round(gap12);
+      warnings.push("Mola Donus Eksik");
     }
-    return { pairs, workMinutes, breakDeducted: false };
+    return { pairs, workMinutes, breakDeducted, classification, breakMinutesActual, warnings };
   }
 
   if (count === 4) {
-    pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[1]) });
-    pairs.push({ in: formatTime(filteredPunches[2]), out: formatTime(filteredPunches[3]) });
-    const seg1 = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
-    const seg2 = (filteredPunches[3].getTime() - filteredPunches[2].getTime()) / 60000;
-    workMinutes = seg1 + seg2;
-    breakDeducted = true;
-    return { pairs, workMinutes, breakDeducted };
+    const breakDuration = (filteredPunches[2].getTime() - filteredPunches[1].getTime()) / 60000;
+    breakMinutesActual = Math.round(breakDuration);
+
+    if (breakDuration < 10) {
+      warnings.push("Cift Giris Suphesi");
+      pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[3]) });
+      workMinutes = (filteredPunches[3].getTime() - filteredPunches[0].getTime()) / 60000;
+      breakDeducted = false;
+    } else if (breakDuration > 120) {
+      warnings.push("Uzun Mola");
+      pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[1]) });
+      pairs.push({ in: formatTime(filteredPunches[2]), out: formatTime(filteredPunches[3]) });
+      const seg1 = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
+      const seg2 = (filteredPunches[3].getTime() - filteredPunches[2].getTime()) / 60000;
+      const totalBrut = seg1 + seg2 + breakDuration;
+      workMinutes = totalBrut - scheduleBreakMinutes;
+      breakDeducted = true;
+    } else {
+      pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[1]) });
+      pairs.push({ in: formatTime(filteredPunches[2]), out: formatTime(filteredPunches[3]) });
+      const seg1 = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
+      const seg2 = (filteredPunches[3].getTime() - filteredPunches[2].getTime()) / 60000;
+      workMinutes = seg1 + seg2;
+      breakDeducted = true;
+    }
+    return { pairs, workMinutes, breakDeducted, breakMinutesActual, warnings };
   }
 
   for (let i = 0; i < count - 1; i += 2) {
@@ -189,7 +297,7 @@ function buildPairsFromPunches(filteredPunches: Date[]): { pairs: { in: string; 
     pairs.push({ in: formatTime(filteredPunches[count - 1]), out: "--:--" });
   }
   breakDeducted = count >= 4;
-  return { pairs, workMinutes, breakDeducted };
+  return { pairs, workMinutes, breakDeducted, warnings };
 }
 
 function buildWeeklyBreakdown(dailyReports: DailyReport[], weeklyExpectedMinutes: number): WeeklyBreakdown[] {
@@ -230,9 +338,16 @@ function buildWeeklyBreakdown(dailyReports: DailyReport[], weeklyExpectedMinutes
 
 function calculateMonthlyExpectedHours(
   dailyReports: DailyReport[],
-  dailyExpectedMinutes: number
+  dailyExpectedMinutes: number,
+  hireDate?: string | null,
+  leaveDate?: string | null
 ): number {
-  const workDays = dailyReports.filter(r => !r.isOffDay && !r.isOnLeave).length;
+  const workDays = dailyReports.filter(r => {
+    if (r.isOffDay || r.isOnLeave) return false;
+    if (hireDate && r.date < hireDate) return false;
+    if (leaveDate && r.date > leaveDate) return false;
+    return true;
+  }).length;
   return Math.round((workDays * dailyExpectedMinutes) / 60 * 10) / 10;
 }
 
@@ -249,7 +364,7 @@ export function processAttendanceData(
   const workStart = timeStringToMinutes(settingsMap.workStartTime || "08:00");
   const workEnd = timeStringToMinutes(settingsMap.workEndTime || "00:00");
   const dailyWorkMinutes = parseInt(settingsMap.dailyWorkMinutes || "540");
-  const breakMinutes = parseInt(settingsMap.breakMinutes || "60");
+  const breakMinutesDefault = parseInt(settingsMap.breakMinutes || "60");
   const overtimeThreshold = parseInt(settingsMap.overtimeThreshold || "15");
   const lateTolerance = parseInt(settingsMap.lateToleranceMinutes || "5");
   const earlyLeaveTolerance = parseInt(settingsMap.earlyLeaveToleranceMinutes || "5");
@@ -262,12 +377,12 @@ export function processAttendanceData(
 
   const crossesMidnightDefault = workEnd <= workStart && workEnd !== 0;
   const totalDefault = crossesMidnightDefault ? (1440 - workStart + workEnd) : (workEnd === 0 ? (1440 - workStart) : (workEnd - workStart));
-  const expectedNetWork = totalDefault - (autoDeductBreak ? breakMinutes : 0);
+  const expectedNetWork = totalDefault - (autoDeductBreak ? breakMinutesDefault : 0);
 
   const defaultSchedule: ScheduleInfo = {
     startMinutes: workStart,
     endMinutes: workEnd,
-    breakMinutes,
+    breakMinutes: breakMinutesDefault,
     expectedNetWork,
     name: "Varsayilan",
     crossesMidnight: workEnd <= workStart,
@@ -338,6 +453,25 @@ export function processAttendanceData(
       }
     }
 
+    const closedWindowSplits: { dateKey: string; afterPunches: Date[] }[] = [];
+    for (const [dateKey, dayData] of byWorkDay) {
+      const sorted = dayData.punches.sort((a, b) => a.getTime() - b.getTime());
+      const { before, after, wasSplit } = splitPunchesByClosedWindow(sorted, dateKey);
+      if (wasSplit && after.length > 0) {
+        dayData.punches = before;
+        const nextDay = nextDateKey(dateKey);
+        closedWindowSplits.push({ dateKey: nextDay, afterPunches: after });
+      }
+    }
+
+    for (const split of closedWindowSplits) {
+      if (!byWorkDay.has(split.dateKey)) {
+        byWorkDay.set(split.dateKey, { punches: [], hasNightCrossing: false });
+      }
+      const entry = byWorkDay.get(split.dateKey)!;
+      entry.punches.push(...split.afterPunches);
+    }
+
     const punchDates = Array.from(byWorkDay.keys()).sort();
     const punchMinDate = punchDates.length > 0 ? punchDates[0] : null;
     const punchMaxDate = punchDates.length > 0 ? punchDates[punchDates.length - 1] : null;
@@ -355,23 +489,18 @@ export function processAttendanceData(
     }
 
     if (empId && punchMinDate && punchMaxDate) {
-      const existingDates = Array.from(byWorkDay.keys()).sort();
-      if (existingDates.length > 0) {
-        const minDate = punchMinDate;
-        const maxDate = punchMaxDate;
-        const cur = new Date(minDate + "T00:00:00");
-        const end = new Date(maxDate + "T00:00:00");
-        while (cur <= end) {
-          const dk = localDateKey(cur);
-          if (!byWorkDay.has(dk)) {
-            const dayOfWeek = cur.getDay();
-            const { isOff } = getScheduleForDay(empId, dk, dayOfWeek, empAssignments, schedulesMap, defaultSchedule);
-            if (isOff) {
-              byWorkDay.set(dk, { punches: [], hasNightCrossing: false });
-            }
+      const cur = new Date(punchMinDate + "T00:00:00");
+      const end = new Date(punchMaxDate + "T00:00:00");
+      while (cur <= end) {
+        const dk = localDateKey(cur);
+        if (!byWorkDay.has(dk)) {
+          const dayOfWeek = cur.getDay();
+          const { isOff } = getScheduleForDay(empId, dk, dayOfWeek, empAssignments, schedulesMap, defaultSchedule);
+          if (isOff) {
+            byWorkDay.set(dk, { punches: [], hasNightCrossing: false });
           }
-          cur.setDate(cur.getDate() + 1);
         }
+        cur.setDate(cur.getDate() + 1);
       }
     }
 
@@ -390,6 +519,9 @@ export function processAttendanceData(
     const sortedDates = Array.from(byWorkDay.keys()).sort();
 
     for (const dateKey of sortedDates) {
+      if (empRecord?.hireDate && dateKey < empRecord.hireDate) continue;
+      if (empRecord?.leaveDate && dateKey > empRecord.leaveDate) continue;
+
       const dayData = byWorkDay.get(dateKey)!;
       const allPunches = dayData.punches.sort((a, b) => a.getTime() - b.getTime());
       const nightCrossing = dayData.hasNightCrossing;
@@ -421,18 +553,28 @@ export function processAttendanceData(
       const punchCount = filteredPunches.length;
       const statuses: string[] = [];
 
-      const { pairs, workMinutes: dayWorkMinutes, breakDeducted } = buildPairsFromPunches(filteredPunches);
+      const punchResult = buildPairsFromPunches(filteredPunches, schedule.breakMinutes);
+      const { pairs, workMinutes: dayWorkMinutes, breakDeducted, classification, breakMinutesActual } = punchResult;
+
+      for (const w of punchResult.warnings) {
+        statuses.push(w);
+        if (w === "Gercek Eksik" || w === "Cift Giris Suphesi") {
+          issueCount++;
+        }
+      }
 
       if (punchCount === 1) {
         statuses.push("Tek Okutma");
         issueCount++;
-      } else if (punchCount === 3) {
+      } else if (punchCount === 3 && !classification) {
         statuses.push("Eksik Okutma");
+        issueCount++;
+      } else if (punchCount === 3 && classification) {
         issueCount++;
       } else if (punchCount >= 5) {
         statuses.push("Coklu Okutma");
         issueCount++;
-      } else if (punchCount % 2 !== 0 && punchCount > 1) {
+      } else if (punchCount % 2 !== 0 && punchCount > 1 && punchCount !== 3) {
         statuses.push("Eksik Kayit");
         issueCount++;
       }
@@ -467,6 +609,7 @@ export function processAttendanceData(
       let earlyLeaveMin = 0;
       let overtimeMin = 0;
       let deficitMin = 0;
+      let leaveConflict = false;
 
       if (isOnLeave) {
         const leaveLabel = leaveTypes.find(t => t.value === leaveInfo?.type)?.label || "Izinli";
@@ -474,6 +617,11 @@ export function processAttendanceData(
         leaveDays++;
         const lt = leaveInfo?.type || "other";
         leaveTypeCounts.set(lt, (leaveTypeCounts.get(lt) || 0) + 1);
+
+        if (punchCount > 0 && !leaveInfo?.conflictResolved) {
+          leaveConflict = true;
+          statuses.push("Izin Cakismasi");
+        }
       } else if (isOff) {
         if (punchCount > 0) {
           statuses.push("Off Gunu Calisma");
@@ -576,6 +724,9 @@ export function processAttendanceData(
         scheduleName: schedule.name !== "Varsayilan" ? schedule.name : undefined,
         punchCount,
         nightCrossing,
+        punchClassification: classification,
+        breakMinutesActual,
+        leaveConflict,
       });
     }
 
@@ -590,7 +741,12 @@ export function processAttendanceData(
     const monthlyTotalNetHours = Math.round(netWorkTotal / 60 * 10) / 10;
 
     const dailyExpectedForMonthly = hasAnyAssignment ? (weeklyExpectedMinutes / 6) : dailyWorkMinutes;
-    const monthlyExpectedHours = calculateMonthlyExpectedHours(dailyReports, dailyExpectedForMonthly);
+    const monthlyExpectedHours = calculateMonthlyExpectedHours(
+      dailyReports,
+      dailyExpectedForMonthly,
+      empRecord?.hireDate,
+      empRecord?.leaveDate
+    );
 
     const performancePercent = monthlyExpectedHours > 0
       ? Math.round((monthlyTotalNetHours / monthlyExpectedHours) * 100)

@@ -307,6 +307,20 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  app.post("/api/leaves/:id/resolve-conflict", requireAuth, async (req, res) => {
+    const leaveId = parseInt(req.params.id);
+    const { action } = req.body;
+    if (!action || !["keep_leave", "cancel_leave"].includes(action)) {
+      return res.status(400).json({ error: "Gecersiz islem. 'keep_leave' veya 'cancel_leave' belirtin." });
+    }
+    if (action === "cancel_leave") {
+      await storage.deleteLeave(leaveId);
+      return res.json({ success: true, action: "cancelled" });
+    }
+    const updated = await storage.updateLeave(leaveId, { conflictResolved: true });
+    res.json({ success: true, action: "resolved", leave: updated });
+  });
+
   app.get("/api/seasons", requireAuth, async (_req, res) => {
     res.json(await storage.getSeasons());
   });
@@ -482,6 +496,61 @@ export async function registerRoutes(
         });
       }
 
+      const warnings: string[] = [];
+      const parseErrorRate = rawData.length > 0 ? errors.length / rawData.length : 0;
+      if (parseErrorRate > 0.05) {
+        return res.status(400).json({
+          error: `Parse hata orani cok yuksek (%${(parseErrorRate * 100).toFixed(1)}). Dosya formati veya encoding hatali olabilir. Lutfen dosyayi kontrol edin.`,
+          errors,
+        });
+      }
+
+      if (attendanceRows.length > 0) {
+        const dates = attendanceRows.map((r: any) => new Date(r.dateTime).getTime()).filter((t: number) => !isNaN(t));
+        if (dates.length > 0) {
+          const minDate = new Date(Math.min(...dates));
+          const maxDate = new Date(Math.max(...dates));
+          const rangeDays = (maxDate.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24);
+          if (rangeDays > 45) {
+            warnings.push(`Tarih araligi ${Math.round(rangeDays)} gun. Tek aylik veri bekleniyor, birden fazla ay olabilir.`);
+          }
+        }
+
+        let closedWindowCount = 0;
+        for (const row of attendanceRows) {
+          const dt = new Date(row.dateTime);
+          const mins = dt.getHours() * 60 + dt.getMinutes();
+          if (mins >= 150 && mins < 420) {
+            closedWindowCount++;
+          }
+        }
+        if (closedWindowCount > 0) {
+          warnings.push(`${closedWindowCount} okutma kapali saat araligi (02:30-07:00) icinde. Gece gecisi kaynaklari kontrol edilmeli.`);
+        }
+
+        const timeMap = new Map<string, number>();
+        for (const row of attendanceRows) {
+          const dt = new Date(row.dateTime);
+          const roundedMin = Math.floor(dt.getTime() / 30000);
+          const key = `${roundedMin}`;
+          timeMap.set(key, (timeMap.get(key) || 0) + 1);
+        }
+        let bulkPunchCount = 0;
+        for (const [, count] of timeMap) {
+          if (count >= 3) bulkPunchCount += count;
+        }
+        if (bulkPunchCount > 0) {
+          warnings.push(`${bulkPunchCount} okutma 30 saniye icinde toplu giris suphesi. Terminal ariza/test olabilir.`);
+        }
+      }
+
+      const existingEmployees = await storage.getEmployees();
+      const existingCount = existingEmployees.length;
+      const newEmployeeCount = [...employeeMap.keys()].filter(enNo => !existingEmployees.some(e => e.enNo === enNo)).length;
+      if (existingCount > 0 && newEmployeeCount > existingCount * 0.5) {
+        warnings.push(`${newEmployeeCount} yeni personel tespit edildi (mevcut: ${existingCount}). Dosya encoding veya format hatasi olabilir.`);
+      }
+
       for (const [enNo, name] of employeeMap) {
         await storage.upsertEmployee({ enNo, name, active: true });
       }
@@ -508,6 +577,7 @@ export async function registerRoutes(
         totalRecords: attendanceRows.length,
         totalEmployees: employeeMap.size,
         errors,
+        warnings,
         summaries,
         headers,
         columnMapping,

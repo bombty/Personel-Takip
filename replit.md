@@ -42,8 +42,14 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - Work schedule templates (Açılış, Kapanış, Tam Gün, Yarım Gün) with shift assignment
 - **4-punch model pairing:** Giriş → Mola Çıkış → Mola Dönüş → Mesai Bitiş (break auto-deducted)
 - **Midnight crossing support:** Punches at 00:00-06:59 attributed to previous work day (for night shift closings)
-- **Enhanced inconsistency detection:** Tek Okutma, Eksik Okutma, Çoklu Okutma, Molasız, Gece Geçişi
-- DailyReport includes punchCount and nightCrossing fields for frontend visualization
+- **Enhanced inconsistency detection:** Tek Okutma, Eksik Okutma, Çoklu Okutma, Molasız, Gece Geçişi, Mola Basi Eksik, Mola Donus Eksik, Gercek Eksik, Cift Giris Suphesi, Uzun Mola, Izin Cakismasi
+- **Closed window splitting (02:30-07:00):** Punches crossing store-closed hours split into 2 work days
+- **3-punch A/B/C classification:** A=Mola Donus Eksik, B=Mola Basi Eksik, C=Gercek Eksik
+- **4-punch break validation:** <10dk=Cift Giris Suphesi, >120dk=Uzun Mola
+- **Leave+punch conflict detection:** Izin gunde okutma varsa "Izin Cakismasi" uyarisi, POST /api/leaves/:id/resolve-conflict endpoint
+- **Upload sanity checks:** Parse error rate >5% stops upload, date range >45 days warns, closed window punch count, bulk punch detection, new employee ratio warning
+- **leaveDate field:** Employee leave date excludes post-leave days from expected hours
+- DailyReport includes punchCount, nightCrossing, punchClassification, breakMinutesActual, leaveConflict fields
 - Overtime, deficit, late, early leave calculations
 - Holiday calendar with salary multipliers
 - Leave management system
@@ -61,12 +67,12 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 
 ## Database Tables
 - `users` - Auth credentials (bcrypt hashed passwords)
-- `employees` - Personnel records (enNo, name, department, position, phone, hireDate, active)
+- `employees` - Personnel records (enNo, name, department, position, phone, hireDate, leaveDate, active)
 - `attendance_records` - Raw fingerprint punch data
 - `uploads` - Upload history
 - `settings` - Configurable work rules
 - `holidays` - Official holidays with salary multipliers
-- `leaves` - Employee leave records
+- `leaves` - Employee leave records (with conflictResolved flag)
 - `seasons` - Seasonal operating hours (Yaz/Kış)
 - `work_schedules` - Shift templates (Açılış, Kapanış, etc.)
 - `weekly_assignments` - Per-employee weekly shift/off assignments
@@ -85,6 +91,7 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - `GET /api/report/:uploadId` - Report data
 - `GET /api/export/:uploadId` - Excel export
 - `GET/POST/PATCH/DELETE /api/leaves` - Leave CRUD
+- `POST /api/leaves/:id/resolve-conflict` - Resolve leave+punch conflict (keep_leave or cancel_leave)
 - `GET /api/ai-analysis/:uploadId` - AI general report analysis (all employees)
 - `GET /api/ai-analysis/:uploadId/:enNo` - AI individual employee analysis
 - `POST /api/clear-data` - Clear all attendance data (yonetim only)

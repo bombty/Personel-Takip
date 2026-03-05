@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Upload as UploadIcon, FileSpreadsheet, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { Upload as UploadIcon, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle, Loader2 } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { setProcessingResult } from "@/lib/store";
 import { useLocation } from "wouter";
@@ -213,6 +213,20 @@ export default function UploadPage() {
                 <Badge variant="default">Tamamlandi</Badge>
               </div>
             </div>
+
+            {result.warnings?.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <p className="text-xs font-medium text-amber-600 flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" /> Veri Kalite Uyarilari
+                </p>
+                {result.warnings.map((w: string, i: number) => (
+                  <div key={i} className="flex items-start gap-2 p-2 rounded bg-amber-500/5 border border-amber-500/20" data-testid={`warning-${i}`}>
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                    <p className="text-xs text-amber-700 dark:text-amber-400">{w}</p>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {result.errors?.length > 0 && (
               <div className="mt-4 space-y-1">

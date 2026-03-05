@@ -61,6 +61,12 @@ function StatusBadge({ status }: { status: string }) {
     "Off Gunu Calisma": "bg-purple-500/10 text-purple-400 border-purple-500/20",
     "Off": "bg-gray-500/10 text-gray-400 border-gray-500/20",
     "Ucretsiz Izin": "bg-gray-500/10 text-gray-400 border-gray-500/20",
+    "Mola Basi Eksik": "bg-amber-500/10 text-amber-600 border-amber-500/20",
+    "Mola Donus Eksik": "bg-amber-500/10 text-amber-600 border-amber-500/20",
+    "Gercek Eksik": "bg-rose-700/10 text-rose-700 border-rose-700/20",
+    "Cift Giris Suphesi": "bg-orange-600/10 text-orange-600 border-orange-600/20",
+    "Uzun Mola": "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
+    "Izin Cakismasi": "bg-fuchsia-500/10 text-fuchsia-500 border-fuchsia-500/20",
   };
 
   const leaveColor = "bg-cyan-500/10 text-cyan-500 border-cyan-500/20";
@@ -100,6 +106,7 @@ export default function EmployeeDetail() {
 
   const employee = reportData?.summaries.find(s => s.enNo === enNo);
   const empRecord = employees?.find((e: any) => e.enNo === enNo);
+  const userRole = (window as any).__userRole || "";
 
   const { data: leaveHistory } = useQuery<any[]>({
     queryKey: ["/api/leaves/employee", empRecord?.id],
@@ -144,7 +151,7 @@ export default function EmployeeDetail() {
     );
   }
 
-  const issues = employee.dailyReports.filter(d => d.status.some(s => s !== "Normal" && s !== "Off" && !isLeaveStatus(s)));
+  const issues = employee.dailyReports.filter(d => d.status.some(s => s !== "Normal" && s !== "Off" && s !== "Gece Gecisi" && !isLeaveStatus(s)));
 
   return (
     <div className="p-6 space-y-6 overflow-auto h-full">
@@ -167,6 +174,11 @@ export default function EmployeeDetail() {
               {employee.department && ` | ${employee.department}`}
               {` | Haftalik: ${employee.weeklyHoursExpected} saat`}
             </p>
+            {empRecord?.leaveDate && (
+              <Badge variant="destructive" className="text-xs mt-1" data-testid="badge-employee-leave-date">
+                Isten Ayrilma: {empRecord.leaveDate}
+              </Badge>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -409,6 +421,7 @@ export default function EmployeeDetail() {
                   <TableHead className="font-mono">1. Cikis</TableHead>
                   <TableHead className="font-mono">2. Giris</TableHead>
                   <TableHead className="font-mono">2. Cikis</TableHead>
+                  <TableHead className="font-mono">Mola</TableHead>
                   <TableHead className="font-mono">Toplam</TableHead>
                   <TableHead className="font-mono">Mesai</TableHead>
                   <TableHead className="font-mono">Eksik</TableHead>
@@ -417,11 +430,12 @@ export default function EmployeeDetail() {
               </TableHeader>
               <TableBody>
                 {employee.dailyReports.map((d: DailyReport) => {
-                  const hasIssue = d.status.some(s => ["Tek Okutma", "Eksik Okutma", "Coklu Okutma", "Eksik Kayit", "Cok Kisa", "Cok Uzun"].includes(s));
+                  const hasIssue = d.status.some(s => ["Tek Okutma", "Eksik Okutma", "Coklu Okutma", "Eksik Kayit", "Cok Kisa", "Cok Uzun", "Gercek Eksik", "Cift Giris Suphesi"].includes(s));
+                  const hasConflict = d.leaveConflict === true;
                   return (
                   <TableRow
                     key={d.date}
-                    className={`${d.isOffDay ? "opacity-40" : d.isOnLeave ? "bg-cyan-500/5" : hasIssue ? "bg-red-500/5" : ""}`}
+                    className={`${hasConflict ? "bg-fuchsia-500/5" : d.isOffDay ? "opacity-40" : d.isOnLeave ? "bg-cyan-500/5" : hasIssue ? "bg-red-500/5" : ""}`}
                     data-testid={`row-day-${d.date}`}
                   >
                     <TableCell className="font-mono text-xs">
@@ -439,14 +453,28 @@ export default function EmployeeDetail() {
                       ) : "-"}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-center" data-testid={`text-punch-count-${d.date}`}>
-                      <span className={`${d.punchCount === 4 ? "text-emerald-500" : d.punchCount === 1 || d.punchCount === 3 || d.punchCount >= 5 ? "text-red-500 font-bold" : ""}`}>
-                        {d.punchCount}
+                      <span className="flex items-center justify-center gap-1">
+                        <span className={`${d.punchCount === 4 ? "text-emerald-500" : d.punchCount === 1 || d.punchCount === 3 || d.punchCount >= 5 ? "text-red-500 font-bold" : ""}`}>
+                          {d.punchCount}
+                        </span>
+                        {d.punchClassification && (
+                          <span className="text-[9px] font-bold text-amber-600" data-testid={`text-classification-${d.date}`}>
+                            {d.punchClassification}
+                          </span>
+                        )}
                       </span>
                     </TableCell>
                     <TableCell className="font-mono text-xs">{d.pairs[0]?.in || "-"}</TableCell>
                     <TableCell className="font-mono text-xs">{d.pairs[0]?.out || "-"}</TableCell>
                     <TableCell className="font-mono text-xs">{d.pairs[1]?.in || "-"}</TableCell>
                     <TableCell className="font-mono text-xs">{d.pairs[1]?.out || "-"}</TableCell>
+                    <TableCell className="font-mono text-xs" data-testid={`text-break-${d.date}`}>
+                      {d.breakMinutesActual != null ? (
+                        <span className={d.breakMinutesActual < 10 ? "text-orange-600 font-bold" : d.breakMinutesActual > 120 ? "text-yellow-600 font-bold" : "text-muted-foreground"}>
+                          {d.breakMinutesActual}dk
+                        </span>
+                      ) : "-"}
+                    </TableCell>
                     <TableCell className="font-mono text-xs">{d.totalWorkMinutes > 0 ? formatMinutes(d.totalWorkMinutes) : "-"}</TableCell>
                     <TableCell className="font-mono text-xs">
                       {d.overtimeMinutes > 0 ? <span className="text-emerald-500">{formatMinutes(d.overtimeMinutes)}</span> : "-"}

@@ -14,7 +14,7 @@ import { useState, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { Employee } from "@shared/schema";
 
-const emptyForm = { name: "", enNo: 0, department: "", position: "", phone: "", hireDate: "", employmentType: "full_time" as string, weeklyHours: 45 };
+const emptyForm = { name: "", enNo: 0, department: "", position: "", phone: "", hireDate: "", leaveDate: "", employmentType: "full_time" as string, weeklyHours: 45 };
 
 export default function EmployeesPage() {
   const [search, setSearch] = useState("");
@@ -67,7 +67,7 @@ export default function EmployeesPage() {
 
   const openEdit = (e: Employee) => {
     setEditId(e.id);
-    setForm({ name: e.name, enNo: e.enNo, department: e.department || "", position: e.position || "", phone: e.phone || "", hireDate: e.hireDate || "", employmentType: e.employmentType || "full_time", weeklyHours: e.weeklyHours || 45 });
+    setForm({ name: e.name, enNo: e.enNo, department: e.department || "", position: e.position || "", phone: e.phone || "", hireDate: e.hireDate || "", leaveDate: e.leaveDate || "", employmentType: e.employmentType || "full_time", weeklyHours: e.weeklyHours || 45 });
     setEditOpen(true);
   };
 
@@ -114,6 +114,10 @@ export default function EmployeesPage() {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
+          <Label>Isten Ayrilma Tarihi</Label>
+          <Input type="date" value={form.leaveDate} onChange={e => setForm({ ...form, leaveDate: e.target.value })} data-testid="input-emp-leave-date" />
+        </div>
+        <div>
           <Label>Calisma Tipi</Label>
           <Select
             value={form.employmentType}
@@ -131,15 +135,15 @@ export default function EmployeesPage() {
             </SelectContent>
           </Select>
         </div>
-        <div>
-          <Label>Haftalik Calisma Saati</Label>
-          <Input
-            type="number"
-            value={form.weeklyHours || ""}
-            onChange={e => setForm({ ...form, weeklyHours: parseInt(e.target.value) || 0 })}
-            data-testid="input-emp-weekly-hours"
-          />
-        </div>
+      </div>
+      <div>
+        <Label>Haftalik Calisma Saati</Label>
+        <Input
+          type="number"
+          value={form.weeklyHours || ""}
+          onChange={e => setForm({ ...form, weeklyHours: parseInt(e.target.value) || 0 })}
+          data-testid="input-emp-weekly-hours"
+        />
       </div>
     </div>
   );
@@ -213,6 +217,11 @@ export default function EmployeesPage() {
                         </Badge>
                         {e.department && <Badge variant="secondary" className="text-xs">{e.department}</Badge>}
                         {e.position && <span className="text-xs text-muted-foreground">{e.position}</span>}
+                        {e.leaveDate && (
+                          <Badge variant="destructive" className="text-xs" data-testid={`badge-leave-date-${e.enNo}`}>
+                            Ayrildi: {e.leaveDate}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   </Link>

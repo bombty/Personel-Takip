@@ -23,6 +23,7 @@ export const employees = pgTable("employees", {
   position: text("position"),
   phone: text("phone"),
   hireDate: date("hire_date"),
+  leaveDate: date("leave_date"),
   active: boolean("active").default(true),
   employmentType: text("employment_type").default("full_time"),
   weeklyHours: integer("weekly_hours").default(45),
@@ -92,6 +93,7 @@ export const leaves = pgTable("leaves", {
   type: text("type").notNull(),
   status: text("status").default("approved"),
   notes: text("notes"),
+  conflictResolved: boolean("conflict_resolved").default(false),
 });
 
 export const insertLeaveSchema = createInsertSchema(leaves).omit({ id: true });
@@ -195,6 +197,9 @@ export interface DailyReport {
   scheduleName?: string;
   punchCount: number;
   nightCrossing: boolean;
+  punchClassification?: string;
+  breakMinutesActual?: number;
+  leaveConflict?: boolean;
 }
 
 export interface LeaveBreakdown {
