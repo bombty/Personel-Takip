@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOSPRESSO · Şubat 2026 — Güncel Kural Puantajı</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;0,9..144,800;1,9..144,400&display=swap');
+:root {
+  --bg:#f4efe6; --surf:#ece6db; --card:#fff; --border:#d5cdc0;
+  --ink:#1a1714; --muted:#8a7f72; --accent:#7b3f00;
+  --gold:#c4922a; --green:#2d6a4f; --red:#9b2226;
+  --blue:#1d3461; --orange:#c96a00; --teal:#1a5c5a;
+  --mono:'IBM Plex Mono',monospace; --serif:'Fraunces',Georgia,serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--ink);font-family:var(--serif);min-height:100vh;}
+
+/* TOP BAR */
+.topbar{background:var(--ink);color:var(--bg);display:flex;align-items:stretch;}
+.topbar-main{padding:28px 40px;flex:1;border-right:1px solid #2a2520;}
+.tb-tag{font-family:var(--mono);font-size:10px;color:var(--gold);letter-spacing:.3em;text-transform:uppercase;margin-bottom:8px;}
+.tb-title{font-size:clamp(22px,3vw,36px);font-weight:800;line-height:1;}
+.tb-title em{font-style:italic;font-weight:300;color:#9a8878;}
+.topbar-meta{padding:28px 32px;display:flex;flex-direction:column;gap:5px;justify-content:center;min-width:220px;}
+.tm-row{display:flex;justify-content:space-between;gap:20px;font-family:var(--mono);font-size:11px;}
+.tm-row .k{color:#5a5048;}.tm-row .v{color:var(--bg);font-weight:700;}
+
+/* DIFF BADGE — top right */
+.rule-badge{background:#9b2226;color:#fff;font-family:var(--mono);font-size:9px;padding:4px 10px;border-radius:2px;letter-spacing:.15em;text-transform:uppercase;align-self:flex-start;margin-top:4px;}
+
+/* PAGE */
+.page{max-width:1180px;margin:0 auto;padding:36px 28px;}
+
+/* SECTION */
+.sec-hd{display:flex;align-items:center;gap:12px;margin:44px 0 20px;}
+.sec-hd:first-child{margin-top:0;}
+.sec-n{font-family:var(--mono);font-size:10px;background:var(--ink);color:var(--gold);padding:3px 8px;border-radius:2px;letter-spacing:.1em;}
+.sec-hd h2{font-size:19px;font-weight:600;font-style:italic;}
+.sec-hd .ln{flex:1;height:1px;background:var(--border);}
+
+/* IMPROVEMENT NOTE */
+.improvement{background:#f0f7f4;border:1px solid #a8d5c2;border-left:4px solid var(--green);border-radius:6px;padding:12px 18px;margin-bottom:24px;font-family:var(--mono);font-size:11px;color:#1a4a38;line-height:1.7;}
+.improvement strong{color:var(--green);}
+
+/* KPI STRIP */
+.kpi-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:28px;}
+.kpi{background:var(--card);padding:18px 14px;text-align:center;}
+.kpi-v{font-family:var(--mono);font-size:26px;font-weight:700;line-height:1;margin-bottom:3px;}
+.kpi-l{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.18em;text-transform:uppercase;}
+.kpi.red .kpi-v{color:var(--red);} .kpi.grn .kpi-v{color:var(--green);}
+.kpi.org .kpi-v{color:var(--orange);} .kpi.blu .kpi-v{color:var(--blue);}
+
+/* COMPARISON TABLE — before vs after */
+.comp-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:28px;}
+.comp-table th{background:var(--ink);color:var(--bg);font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:11px 14px;text-align:left;font-weight:600;}
+.comp-table td{padding:11px 14px;border-bottom:1px solid var(--surf);font-size:12px;vertical-align:middle;}
+.comp-table tr:last-child td{border-bottom:none;}
+.comp-table tr:hover td{background:var(--bg);}
+.n-cell{font-weight:700;font-style:italic;font-size:14px;text-transform:capitalize;}
+.mono{font-family:var(--mono);font-size:11px;}
+.before{font-family:var(--mono);font-size:11px;color:var(--red);text-decoration:line-through;opacity:.7;}
+.after{font-family:var(--mono);font-size:11px;color:var(--green);font-weight:700;}
+.tag{display:inline-block;padding:2px 7px;border-radius:3px;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;}
+.tag.ok{background:rgba(45,106,79,.1);color:var(--green);}
+.tag.warn{background:rgba(201,106,0,.12);color:var(--orange);}
+.tag.issue{background:rgba(155,34,38,.1);color:var(--red);}
+.tag.split{background:rgba(29,52,97,.1);color:var(--blue);}
+.tag.missing{background:#eee;color:var(--muted);}
+.diff-pos{font-family:var(--mono);font-weight:700;color:var(--green);}
+.diff-neg{font-family:var(--mono);font-weight:700;color:var(--red);}
+.diff-zero{font-family:var(--mono);font-weight:700;color:var(--blue);}
+
+/* EMPLOYEE DETAIL CARDS */
+.emp-grid{display:flex;flex-direction:column;gap:18px;}
+.emp-card{background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.emp-head{display:flex;align-items:stretch;border-bottom:1px solid var(--border);}
+.emp-av{width:56px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:18px;font-weight:700;color:#fff;flex-shrink:0;}
+.emp-inf{padding:12px 16px;flex:1;}
+.emp-name{font-size:17px;font-weight:700;font-style:italic;text-transform:capitalize;}
+.emp-sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:2px;letter-spacing:.08em;}
+.emp-stats{display:flex;border-left:1px solid var(--border);}
+.es{padding:10px 14px;border-right:1px solid var(--border);text-align:center;min-width:90px;}
+.es:last-child{border-right:none;}
+.es-v{font-family:var(--mono);font-size:13px;font-weight:700;line-height:1;}
+.es-l{font-family:var(--mono);font-size:8px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-top:2px;}
+.es.pos .es-v{color:var(--green);} .es.neg .es-v{color:var(--red);}
+.es.org .es-v{color:var(--orange);} .es.blu .es-v{color:var(--blue);}
+
+/* PERF BAR */
+.emp-body{padding:14px 18px;}
+.pb-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pb-lbl{font-family:var(--mono);font-size:9px;color:var(--muted);width:72px;flex-shrink:0;letter-spacing:.08em;text-transform:uppercase;}
+.pb-track{flex:1;height:7px;background:var(--surf);border-radius:4px;overflow:hidden;}
+.pb-fill{height:100%;border-radius:4px;}
+.pb-fill.grn{background:var(--green);} .pb-fill.red{background:var(--red);} .pb-fill.blu{background:var(--blue);}
+.pb-val{font-family:var(--mono);font-size:10px;width:44px;text-align:right;flex-shrink:0;}
+
+/* ISSUES LIST */
+.issues-wrap{margin-top:10px;}
+.issues-hd{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:.15em;text-transform:uppercase;margin-bottom:7px;display:flex;align-items:center;gap:8px;}
+.ic{background:var(--red);color:#fff;border-radius:10px;padding:1px 6px;font-size:8px;font-weight:700;}
+.ic.warn{background:var(--orange);}
+.iss-table{width:100%;border-collapse:collapse;font-size:11px;}
+.iss-table th{font-family:var(--mono);font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:5px 8px;border-bottom:1px solid var(--border);background:var(--surf);text-align:left;}
+.iss-table td{padding:6px 8px;border-bottom:1px solid var(--surf);font-family:var(--mono);font-size:11px;vertical-align:middle;}
+.iss-table tr:last-child td{border-bottom:none;}
+.punch-seq span{margin:0 2px;}
+
+/* SPECIAL NOTE */
+.sp-note{margin-top:10px;padding:9px 12px;border-radius:5px;font-family:var(--mono);font-size:10px;line-height:1.6;}
+.sp-note.warn{background:#fff8ec;border:1px solid #fde68a;color:var(--orange);}
+.sp-note.crit{background:#fff0f0;border:1px solid #fca5a5;color:var(--red);}
+.sp-note.info{background:#eff6ff;border:1px solid #bfdbfe;color:var(--blue);}
+
+/* RANKING */
+.rank-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.rank-table th{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:11px 14px;text-align:left;background:var(--surf);border-bottom:1px solid var(--border);}
+.rank-table td{padding:13px 14px;border-bottom:1px solid var(--surf);font-size:12px;}
+.rank-table tr:last-child td{border-bottom:none;}
+.rank-table tr:hover td{background:var(--bg);}
+.rn{font-size:14px;font-weight:700;font-style:italic;text-transform:capitalize;}
+
+/* MINI BAR */
+.mb{display:flex;align-items:center;gap:7px;}
+.mb-track{width:70px;height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
+.mb-fill{height:100%;border-radius:3px;}
+
+footer{margin-top:48px;padding:20px 28px;border-top:1px solid var(--border);display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--muted);}
+
+@media(max-width:768px){
+  .emp-stats{flex-wrap:wrap;}
+  .kpi-strip{grid-template-columns:repeat(3,1fr);}
+  .topbar{flex-direction:column;}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-main">
+    <div class="tb-tag">DOSPRESSO PDKS · Lara Şubesi</div>
+    <div class="tb-title">Şubat 2026 <em>Puantaj Raporu</em></div>
+    <div class="rule-badge" style="margin-top:10px;">▲ Güncel Kurallar Uygulandı</div>
+  </div>
+  <div class="topbar-meta">
+    <div class="tm-row"><span class="k">Dönem</span><span class="v">01–28 Şub 2026</span></div>
+    <div class="tm-row"><span class="k">Personel</span><span class="v">9 kişi</span></div>
+    <div class="tm-row"><span class="k">Toplam Okutma</span><span class="v">785 kayıt</span></div>
+    <div class="tm-row"><span class="k">Kural Sürümü</span><span class="v">v2 — Mart 2026</span></div>
+  </div>
+</div>
+
+<div class="page">
+
+  <div class="sec-hd" style="margin-top:28px;">
+    <div class="sec-n">01</div><h2>Kural Değişikliğinin Etkisi</h2><div class="ln"></div>
+  </div>
+
+  <div class="improvement">
+    <strong>Kapalı Saat Penceresi Kuralı (02:30–07:00) uygulandı:</strong> Eski sistemde gece geçişli kapanış+açılış günleri şişmiş mesai üretiyordu.
+    Jennifer için <strong>366 saat → 183 saat</strong>, Efe için 19 saatlik şişme düzeltildi.
+    3-okutma günleri artık A/B/C senaryosuna göre sınıflandırılıyor: gerçek eksik gün ile mola okutması unutulmuş gün birbirinden ayrıldı.
+  </div>
+
+  <div class="kpi-strip" id="kpiStrip"></div>
+
+  <div class="sec-hd">
+    <div class="sec-n">02</div><h2>Genel Karşılaştırma Tablosu</h2><div class="ln"></div>
+  </div>
+
+  <table class="comp-table" id="compTable">
+    <thead>
+      <tr>
+        <th>Personel</th>
+        <th>Çalışılan Gün</th>
+        <th>Beklenen</th>
+        <th>Net Çalışma</th>
+        <th>Fark</th>
+        <th>Sorunlu Gün</th>
+        <th>Performans</th>
+      </tr>
+    </thead>
+    <tbody id="compBody"></tbody>
+  </table>
+
+  <div class="sec-hd">
+    <div class="sec-n">03</div><h2>Personel Detay Kartları</h2><div class="ln"></div>
+  </div>
+  <div class="emp-grid" id="empGrid"></div>
+
+  <div class="sec-hd">
+    <div class="sec-n">04</div><h2>Performans Sıralaması</h2><div class="ln"></div>
+  </div>
+  <table class="rank-table" id="rankTable">
+    <thead>
+      <tr>
+        <th>#</th><th>Personel</th><th>İş Günü</th>
+        <th>Beklenen</th><th>Net</th><th>Fark</th>
+        <th>Sorun</th><th>Performans</th>
+      </tr>
+    </thead>
+    <tbody id="rankBody"></tbody>
+  </table>
+
+</div>
+
+<footer>
+  <span>DOSPRESSO PDKS · Lara Şubesi · Şubat 2026 · Güncel Kural Raporu (v2)</span>
+  <span>Kapalı Saat Kuralı · 3-Okutma ABC · Mola Aralık Kontrolü</span>
+</footer>
+
+<script>
+const DATA = [{"sicil":5,"isim":"jennifer","work_days":24,"expected":10800,"net":10990,"diff":190,"issue_count":0,"pct":102,"issues":[],"days":[{"date":"02-01","wday":"Paz","n":4,"times":["07:49","11:00","12:00","16:38"],"net":470,"status":"Normal","flag":"ok","note":""},{"date":"02-02","wday":"Pzt","n":4,"times":["07:47","11:00","11:58","16:30"],"net":464,"status":"Normal","flag":"ok","note":""},{"date":"02-04","wday":"Çar","n":4,"times":["16:12","17:34","18:35","00:56"],"net":463,"status":"Normal","flag":"ok","note":""},{"date":"02-05","wday":"Per","n":4,"times":["16:11","18:31","19:33","00:45"],"net":452,"status":"Normal","flag":"ok","note":""},{"date":"02-06","wday":"Cum","n":4,"times":["16:13","18:00","19:04","00:49"],"net":453,"status":"Normal","flag":"ok","note":""},{"date":"02-07","wday":"Cmt","n":4,"times":["16:03","18:36","19:40","02:04"],"net":536,"status":"Normal","flag":"ok","note":""},{"date":"02-08","wday":"Paz","n":4,"times":["17:13","19:44","20:46","01:47"],"net":452,"status":"Normal","flag":"ok","note":""},{"date":"02-09","wday":"Pzt","n":4,"times":["16:14","18:03","19:03","00:45"],"net":451,"status":"Normal","flag":"ok","note":""},{"date":"02-10","wday":"Sal","n":4,"times":["16:14","17:32","18:33","00:45"],"net":450,"status":"Normal","flag":"ok","note":""},{"date":"02-12","wday":"Per","n":4,"times":["16:14","17:33","18:33","00:45"],"net":450,"status":"Normal","flag":"ok","note":""},{"date":"02-13","wday":"Cum","n":4,"times":["16:14","18:06","19:06","00:45"],"net":450,"status":"Normal","flag":"ok","note":""},{"date":"02-14","wday":"Cmt","n":4,"times":["17:08","19:36","20:36","01:45"],"net":457,"status":"Normal","flag":"ok","note":""},{"date":"02-15","wday":"Paz","n":4,"times":["17:11","19:48","20:47","01:45"],"net":455,"status":"Normal","flag":"ok","note":""},{"date":"02-16","wday":"Pzt","n":4,"times":["16:12","17:52","18:53","00:45"],"net":452,"status":"Normal","flag":"ok","note":""},{"date":"02-17","wday":"Sal","n":4,"times":["16:14","17:32","18:28","00:45"],"net":455,"status":"Normal","flag":"ok","note":""},{"date":"02-19","wday":"Per","n":4,"times":["16:14","18:33","19:39","00:45"],"net":445,"status":"Normal","flag":"ok","note":""},{"date":"02-20","wday":"Cum","n":4,"times":["16:13","19:00","19:59","00:45"],"net":452,"status":"Normal","flag":"ok","note":""},{"date":"02-21","wday":"Cmt","n":4,"times":["17:13","18:30","19:31","01:45"],"net":451,"status":"Normal","flag":"ok","note":""},{"date":"02-22","wday":"Paz","n":4,"times":["16:43","19:35","20:39","01:45"],"net":478,"status":"Normal","flag":"ok","note":""},{"date":"02-23","wday":"Pzt","n":4,"times":["16:14","17:05","18:05","00:45"],"net":450,"status":"Normal","flag":"ok","note":""},{"date":"02-24","wday":"Sal","n":4,"times":["16:14","17:14","18:16","00:45"],"net":449,"status":"Normal","flag":"ok","note":""},{"date":"02-25","wday":"Çar","n":4,"times":["16:13","18:01","19:01","00:45"],"net":451,"status":"Normal","flag":"ok","note":""},{"date":"02-27","wday":"Cum","n":4,"times":["16:08","18:03","19:06","00:45"],"net":454,"status":"Normal","flag":"ok","note":""},{"date":"02-28","wday":"Cmt","n":4,"times":["12:30","17:51","18:55","21:03"],"net":450,"status":"Normal","flag":"ok","note":""}]},{"sicil":6,"isim":"veysel","work_days":24,"expected":10800,"net":10159,"diff":-641,"issue_count":5,"pct":94,"issues":[{"date":"02-02","wday":"Pzt","n":2,"times":["09:29","17:00"],"net":391,"status":"Molasız","flag":"warn","note":"60dk otomatik düşüldü"},{"date":"02-08","wday":"Paz","n":3,"times":["19:21","20:28","01:48"],"net":320,"status":"Mola Başı Eksik","flag":"warn","note":"66dk mola düşüldü"},{"date":"02-16","wday":"Pzt","n":3,"times":["16:12","19:48","20:36"],"net":263,"status":"Eksik Gün","flag":"issue","note":"263dk — gerçek eksik"},{"date":"02-17","wday":"Sal","n":3,"times":["16:13","19:40","00:45"],"net":206,"status":"Mola Dönüş Eksik","flag":"warn","note":"305dk mola düşüldü"},{"date":"02-26","wday":"Per","n":3,"times":["09:28","12:44","13:44"],"net":256,"status":"Eksik Gün","flag":"issue","note":"256dk — gerçek eksik"}]},{"sicil":9,"isim":"berkan","work_days":22,"expected":9900,"net":10027,"diff":127,"issue_count":1,"pct":101,"issues":[{"date":"02-28","wday":"Cmt","n":3,"times":["17:13","19:02","20:04"],"net":171,"status":"Eksik Gün","flag":"issue","note":"171dk — gerçek eksik"}]},{"sicil":13,"isim":"gül","work_days":21,"expected":9450,"net":9663,"diff":213,"issue_count":4,"pct":102,"issues":[{"date":"02-07","wday":"Cmt","n":3,"times":["07:36","12:00","16:42"],"net":264,"status":"Mola Dönüş Eksik","flag":"warn","note":"282dk mola düşüldü"},{"date":"02-08","wday":"Paz","n":4,"times":["07:40","07:52","12:05","16:39"],"net":479,"status":"Uzun Mola","flag":"warn","note":"Mola 253dk, 60dk sabit düşüldü"},{"date":"02-09","wday":"Pzt","n":2,"times":["07:46","16:35"],"net":469,"status":"Molasız","flag":"warn","note":"60dk otomatik düşüldü"},{"date":"02-13","wday":"Cum","n":3,"times":["07:44","11:32","16:32"],"net":228,"status":"Mola Dönüş Eksik","flag":"warn","note":"299dk mola düşüldü"}]},{"sicil":15,"isim":"yağız","work_days":24,"expected":10800,"net":10762,"diff":-38,"issue_count":2,"pct":100,"issues":[{"date":"02-20","wday":"Cum","n":3,"times":["16:14","19:33","20:32"],"net":257,"status":"Eksik Gün","flag":"issue","note":"257dk — gerçek eksik"},{"date":"02-28","wday":"Cmt","n":3,"times":["17:15","20:12","21:12"],"net":237,"status":"Eksik Gün","flag":"issue","note":"237dk — gerçek eksik"}]},{"sicil":16,"isim":"buğra","work_days":15,"expected":6750,"net":6745,"diff":-5,"issue_count":0,"pct":100,"issues":[]},{"sicil":22,"isim":"eren","work_days":24,"expected":10800,"net":10573,"diff":-227,"issue_count":6,"pct":98,"issues":[{"date":"02-03","wday":"Sal","n":3,"times":["16:12","18:03","18:59"],"net":166,"status":"Eksik Gün","flag":"issue","note":"166dk — gerçek eksik"},{"date":"02-05","wday":"Per","n":3,"times":["16:10","17:35","18:29"],"net":138,"status":"Eksik Gün","flag":"issue","note":"138dk — gerçek eksik"},{"date":"02-13","wday":"Cum","n":3,"times":["10:52","11:45","18:00"],"net":375,"status":"Mola Başı Eksik","flag":"warn","note":"53dk mola düşüldü"},{"date":"02-22","wday":"Paz","n":3,"times":["12:26","17:25","18:22"],"net":299,"status":"Mola Dönüş Eksik","flag":"warn","note":"57dk mola düşüldü"},{"date":"02-25","wday":"Çar","n":5,"times":["16:13","17:01","17:57","21:44","00:45"],"net":451,"status":"5 Okutma","flag":"issue","note":"Cihaz hatası olabilir"},{"date":"02-28","wday":"Cmt","n":3,"times":["17:06","19:29","20:31"],"net":205,"status":"Eksik Gün","flag":"issue","note":"205dk — gerçek eksik"}]},{"sicil":32,"isim":"deniz","work_days":24,"expected":10800,"net":11342,"diff":542,"issue_count":2,"pct":105,"issues":[{"date":"02-05","wday":"Per","n":2,"times":["09:19","18:04"],"net":464,"status":"Molasız","flag":"warn","note":"60dk otomatik düşüldü"},{"date":"02-11","wday":"Çar","n":3,"times":["18:06","19:02","00:45"],"net":344,"status":"Mola Başı Eksik","flag":"warn","note":"55dk mola düşüldü"}]},{"sicil":55,"isim":"efe","work_days":24,"expected":10800,"net":11042,"diff":242,"issue_count":1,"pct":102,"issues":[{"date":"02-09","wday":"Pzt","n":2,"times":["07:48","16:40"],"net":472,"status":"Molasız","flag":"warn","note":"60dk otomatik düşüldü"}]}];
+
+const COLORS = {'jennifer':'#7b3f00','veysel':'#1d3461','berkan':'#2d6a4f','gül':'#5e2d91','yağız':'#c4922a','buğra':'#9b2226','eren':'#1a5c5a','deniz':'#374e50','efe':'#744210'};
+
+function fmtM(m){const h=Math.floor(Math.abs(m)/60),mn=Math.abs(m)%60,s=m>=0?'+':'−';return`${s}${h}s${mn.toString().padStart(2,'0')}dk`;}
+function fmtHM(m){const h=Math.floor(m/60),mn=m%60;return`${h}s${mn.toString().padStart(2,'0')}dk`;}
+
+// KPI
+const totals={fazla:0,eksik:0,issues:0,attention:0};
+DATA.forEach(e=>{
+  if(e.diff>60)totals.fazla++;
+  else if(e.diff<-60)totals.eksik++;
+  totals.issues+=e.issue_count;
+  if(e.issue_count>=4)totals.attention++;
+});
+document.getElementById('kpiStrip').innerHTML=`
+  <div class="kpi grn"><div class="kpi-v">${totals.fazla}</div><div class="kpi-l">Fazla Mesai</div></div>
+  <div class="kpi red"><div class="kpi-v">${totals.eksik}</div><div class="kpi-l">Eksik Çalışma</div></div>
+  <div class="kpi org"><div class="kpi-v">${totals.issues}</div><div class="kpi-l">Sorunlu Okutma</div></div>
+  <div class="kpi red"><div class="kpi-v">${totals.attention}</div><div class="kpi-l">Dikkat Personel</div></div>
+  <div class="kpi blu"><div class="kpi-v">${Math.round(DATA.reduce((a,e)=>a+e.pct,0)/DATA.length)}%</div><div class="kpi-l">Ort. Performans</div></div>`;
+
+// COMP TABLE
+const cb=document.getElementById('compBody');
+DATA.forEach(e=>{
+  const dc=e.diff>60?'diff-pos':e.diff<-60?'diff-neg':'diff-zero';
+  const pc=e.pct>=100?'grn':e.pct>=95?'org':'red';
+  cb.innerHTML+=`<tr>
+    <td><span class="n-cell">${e.isim}</span> <span class="mono" style="color:var(--muted)">#${e.sicil}</span></td>
+    <td class="mono">${e.work_days} gün</td>
+    <td class="mono">${fmtHM(e.expected)}</td>
+    <td class="mono">${fmtHM(e.net)}</td>
+    <td><span class="${dc}">${fmtM(e.diff)}</span></td>
+    <td class="mono" style="${e.issue_count>3?'color:var(--red);font-weight:700':''}">${e.issue_count>0?'⚠ ':'✓ '}${e.issue_count}</td>
+    <td>
+      <div class="mb">
+        <div class="mb-track"><div class="mb-fill ${pc==='grn'?'grn':pc==='org'?'':'red'}" style="width:${Math.min(100,e.pct)}%;background:${e.pct>=100?'var(--green)':e.pct>=95?'var(--orange)':'var(--red)'}"></div></div>
+        <span class="mono">%${e.pct}</span>
+      </div>
+    </td>
+  </tr>`;
+});
+
+// EMP CARDS
+const grid=document.getElementById('empGrid');
+DATA.forEach(e=>{
+  const color=COLORS[e.isim]||'#555';
+  const dc=e.diff>60?'pos':e.diff<-60?'neg':'';
+  const ic=e.issues.filter(i=>i.flag==='issue').length;
+  const wc=e.issues.filter(i=>i.flag==='warn').length;
+
+  let issHTML='';
+  if(e.issues.length>0){
+    const rows=e.issues.map(iss=>{
+      const pColors=['var(--green)','var(--orange)','var(--orange)','var(--red)','var(--blue)'];
+      const pts=iss.times.map((t,i)=>`<span style="color:${pColors[Math.min(i,4)]}">${t}</span>`).join(' · ');
+      const netCol=iss.net<300?'color:var(--red);font-weight:700':'';
+      return`<tr>
+        <td>${iss.date} ${iss.wday}</td>
+        <td><span class="tag ${iss.flag}">${iss.status}</span></td>
+        <td class="punch-seq">${pts}</td>
+        <td style="font-family:var(--mono);${netCol}">${iss.net}dk</td>
+        <td style="color:var(--muted);font-size:10px;">${iss.note}</td>
+      </tr>`;
+    }).join('');
+    issHTML=`<div class="issues-wrap">
+      <div class="issues-hd">Sorunlu Okutma Günleri
+        ${ic>0?`<span class="ic">${ic} kritik</span>`:''}
+        ${wc>0?`<span class="ic warn">${wc} uyarı</span>`:''}
+      </div>
+      <table class="iss-table">
+        <thead><tr><th>Tarih</th><th>Durum</th><th>Saatler</th><th>Net Süre</th><th>Not</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  let note='';
+  if(e.sicil===16) note=`<div class="sp-note crit">⚠ 19 Şubat sonrası kayıt yok (${30-e.work_days} gün eksik) — izin/rapor/ayrılış durumu netleştirilmeli. Bordro hesabı yapılamaz.</div>`;
+  if(e.sicil===5) note=`<div class="sp-note info">✓ Kapalı saat kuralı uygulandı — önceki raporda 366s görünen değer gerçekçi 183s'ye düştü. Kapanış vardiyası doğru çalışıyor.</div>`;
+  if(e.sicil===22&&e.issue_count>=5) note=`<div class="sp-note warn">⚠ Ayın en fazla sorunlu okutma kaydı. 25 Şubat 5 okutma cihaz hatası muhtemelen. 3 günde gerçek eksik çalışma tespit edildi.</div>`;
+
+  const pbar=Math.min(100,e.pct);
+  const pclass=e.pct>=100?'grn':e.pct>=95?'':'red';
+
+  grid.innerHTML+=`<div class="emp-card">
+    <div class="emp-head">
+      <div class="emp-av" style="background:${color}">${e.isim[0].toUpperCase()}</div>
+      <div class="emp-inf">
+        <div class="emp-name">${e.isim}</div>
+        <div class="emp-sub">SİCİL #${e.sicil} · ${e.work_days} iş günü · ${e.issues.length===0?'sorunsuz':'⚠ '+e.issues.length+' gün uyarı'}</div>
+      </div>
+      <div class="emp-stats">
+        <div class="es"><div class="es-v">${fmtHM(e.expected)}</div><div class="es-l">Beklenen</div></div>
+        <div class="es"><div class="es-v">${fmtHM(e.net)}</div><div class="es-l">Net</div></div>
+        <div class="es ${dc}"><div class="es-v">${fmtM(e.diff)}</div><div class="es-l">Fark</div></div>
+        <div class="es ${e.issue_count>3?'org':''}"><div class="es-v">${e.issue_count}</div><div class="es-l">Sorun</div></div>
+        <div class="es"><div class="es-v">${e.pct}%</div><div class="es-l">Perf.</div></div>
+      </div>
+    </div>
+    <div class="emp-body">
+      <div class="pb-row">
+        <div class="pb-lbl">Performans</div>
+        <div class="pb-track"><div class="pb-fill ${pclass==='grn'?'grn':pclass===''?'':'red'}" style="width:${pbar}%;background:${e.pct>=100?'var(--green)':e.pct>=95?'var(--orange)':'var(--red)'}"></div></div>
+        <div class="pb-val" style="color:${e.pct>=100?'var(--green)':e.pct>=95?'var(--orange)':'var(--red)'}">%${e.pct}</div>
+      </div>
+      ${issHTML}
+      ${note}
+    </div>
+  </div>`;
+});
+
+// RANKING
+const sorted=[...DATA].sort((a,b)=>{
+  if(a.issue_count!==b.issue_count)return a.issue_count-b.issue_count;
+  return b.diff-a.diff;
+});
+const rb=document.getElementById('rankBody');
+const medals=['🥇','🥈','🥉'];
+sorted.forEach((e,i)=>{
+  const dc=e.diff>60?'diff-pos':e.diff<-60?'diff-neg':'diff-zero';
+  rb.innerHTML+=`<tr>
+    <td style="font-family:var(--mono);color:var(--muted);font-size:12px;">${medals[i]||`${i+1}.`}</td>
+    <td><span class="rn">${e.isim}</span> <span style="font-family:var(--mono);font-size:10px;color:var(--muted)">#${e.sicil}</span></td>
+    <td class="mono">${e.work_days}g</td>
+    <td class="mono">${fmtHM(e.expected)}</td>
+    <td class="mono">${fmtHM(e.net)}</td>
+    <td><span class="${dc}">${fmtM(e.diff)}</span></td>
+    <td class="mono" style="${e.issue_count>3?'color:var(--red);font-weight:700':''}">${e.issue_count>0?'⚠ ':'✓ '}${e.issue_count}</td>
+    <td>
+      <div class="mb">
+        <div class="mb-track"><div class="mb-fill" style="width:${Math.min(100,e.pct)}%;background:${e.pct>=100?'var(--green)':e.pct>=95?'var(--orange)':'var(--red)'}"></div></div>
+        <span class="mono">%${e.pct}</span>
+      </div>
+    </td>
+  </tr>`;
+});
+
+// animate bars
+setTimeout(()=>{
+  document.querySelectorAll('.pb-fill,.mb-fill').forEach(b=>{
+    const w=b.style.width; b.style.width='0';
+    setTimeout(()=>b.style.width=w,50);
+  });
+},100);
+</script>
+</body>
+</html>
