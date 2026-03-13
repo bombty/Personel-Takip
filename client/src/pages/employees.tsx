@@ -12,6 +12,7 @@ import { Link } from "wouter";
 import { Users, ChevronRight, Plus, Pencil, Trash2 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useBranch } from "@/hooks/use-branch";
 import type { Employee, Branch } from "@shared/schema";
 
 const emptyForm = { name: "", enNo: 0, department: "", position: "", phone: "", hireDate: "", leaveDate: "", employmentType: "full_time" as string, weeklyHours: 45, branchId: null as number | null };
@@ -24,7 +25,9 @@ export default function EmployeesPage() {
   const [editId, setEditId] = useState<number | null>(null);
   const { toast } = useToast();
 
-  const { data: employees, isLoading } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+  const { selectedBranchId } = useBranch();
+  const branchParam = selectedBranchId ? `?branchId=${selectedBranchId}` : "";
+  const { data: employees, isLoading } = useQuery<Employee[]>({ queryKey: [`/api/employees${branchParam}`] });
   const { data: branches = [] } = useQuery<Branch[]>({ queryKey: ["/api/branches"] });
 
   const filtered = useMemo(() => {
@@ -42,6 +45,7 @@ export default function EmployeesPage() {
     mutationFn: async (data: any) => { await apiRequest("POST", "/api/employees", data); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/employees${branchParam}`] });
       setAddOpen(false);
       setForm(emptyForm);
       toast({ title: "Personel eklendi" });
@@ -53,6 +57,7 @@ export default function EmployeesPage() {
     mutationFn: async ({ id, data }: { id: number; data: any }) => { await apiRequest("PATCH", `/api/employees/${id}`, data); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/employees${branchParam}`] });
       setEditOpen(false);
       toast({ title: "Personel guncellendi" });
     },
@@ -62,6 +67,7 @@ export default function EmployeesPage() {
     mutationFn: async (id: number) => { await apiRequest("DELETE", `/api/employees/${id}`); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/employees${branchParam}`] });
       toast({ title: "Personel pasif yapildi" });
     },
   });

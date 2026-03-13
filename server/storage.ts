@@ -28,7 +28,7 @@ export interface IStorage {
   updateBranch(id: number, data: Partial<InsertBranch>): Promise<Branch | undefined>;
   deleteBranch(id: number): Promise<void>;
 
-  getEmployees(): Promise<Employee[]>;
+  getEmployees(branchId?: number): Promise<Employee[]>;
   getEmployeeByEnNo(enNo: number): Promise<Employee | undefined>;
   getEmployeeById(id: number): Promise<Employee | undefined>;
   upsertEmployee(employee: InsertEmployee): Promise<Employee>;
@@ -36,7 +36,7 @@ export interface IStorage {
   deleteEmployee(id: number): Promise<void>;
 
   createUpload(upload: InsertUpload): Promise<Upload>;
-  getUploads(): Promise<Upload[]>;
+  getUploads(branchId?: number): Promise<Upload[]>;
   getUploadById(id: number): Promise<Upload | undefined>;
 
   createAttendanceRecords(records: InsertAttendanceRecord[]): Promise<void>;
@@ -71,7 +71,7 @@ export interface IStorage {
   createWeeklyAssignment(assignment: InsertWeeklyAssignment): Promise<WeeklyAssignment>;
   updateWeeklyAssignment(id: number, data: Partial<InsertWeeklyAssignment>): Promise<WeeklyAssignment | undefined>;
 
-  getReportPeriods(): Promise<ReportPeriod[]>;
+  getReportPeriods(branchId?: number): Promise<ReportPeriod[]>;
   getReportPeriodById(id: number): Promise<ReportPeriod | undefined>;
   createReportPeriod(period: InsertReportPeriod): Promise<ReportPeriod>;
   updateReportPeriod(id: number, data: Partial<InsertReportPeriod>): Promise<ReportPeriod | undefined>;
@@ -120,8 +120,11 @@ export class DatabaseStorage implements IStorage {
     await db.update(branches).set({ active: false }).where(eq(branches.id, id));
   }
 
-  async getEmployees(): Promise<Employee[]> {
-    return db.select().from(employees);
+  async getEmployees(branchId?: number): Promise<Employee[]> {
+    if (branchId) {
+      return db.select().from(employees).where(and(eq(employees.active, true), eq(employees.branchId, branchId)));
+    }
+    return db.select().from(employees).where(eq(employees.active, true));
   }
 
   async getEmployeeByEnNo(enNo: number): Promise<Employee | undefined> {
@@ -157,8 +160,11 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getUploads(): Promise<Upload[]> {
-    return db.select().from(uploads);
+  async getUploads(branchId?: number): Promise<Upload[]> {
+    if (branchId) {
+      return db.select().from(uploads).where(eq(uploads.branchId, branchId)).orderBy(desc(uploads.uploadDate));
+    }
+    return db.select().from(uploads).orderBy(desc(uploads.uploadDate));
   }
 
   async getUploadById(id: number): Promise<Upload | undefined> {
@@ -292,7 +298,10 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getReportPeriods(): Promise<ReportPeriod[]> {
+  async getReportPeriods(branchId?: number): Promise<ReportPeriod[]> {
+    if (branchId) {
+      return db.select().from(reportPeriods).where(eq(reportPeriods.branchId, branchId)).orderBy(desc(reportPeriods.createdAt));
+    }
     return db.select().from(reportPeriods).orderBy(desc(reportPeriods.createdAt));
   }
 

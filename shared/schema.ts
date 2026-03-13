@@ -69,6 +69,7 @@ export const uploads = pgTable("uploads", {
   totalRecords: integer("total_records").default(0),
   totalEmployees: integer("total_employees").default(0),
   status: text("status").default("processed"),
+  branchId: integer("branch_id"),
 });
 
 export const insertUploadSchema = createInsertSchema(uploads).omit({ id: true, uploadDate: true });
@@ -164,6 +165,7 @@ export const reportPeriods = pgTable("report_periods", {
   endDate: date("end_date").notNull(),
   uploadIds: text("upload_ids"),
   status: text("status").default("draft"),
+  branchId: integer("branch_id"),
   createdAt: timestamp("created_at").defaultNow(),
   finalizedAt: timestamp("finalized_at"),
 });

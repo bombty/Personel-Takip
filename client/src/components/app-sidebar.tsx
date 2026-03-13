@@ -50,18 +50,26 @@ export function AppSidebar() {
 
   const menuItems = allMenuItems.filter(item => user && item.roles.includes(user.role));
 
+  const selectedBranch = branches.find(b => b.id === selectedBranchId);
+
   return (
     <Sidebar>
-      <SidebarHeader className="p-4">
+      <SidebarHeader className="p-4 pb-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary shrink-0">
             <Coffee className="h-5 w-5 text-primary-foreground" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold tracking-tight" data-testid="text-app-title">DOSPRESSO</h2>
             <p className="text-xs text-muted-foreground">Personel Takip</p>
           </div>
         </div>
+        {selectedBranch && (
+          <div className="mt-2 flex items-center gap-1.5 rounded-md bg-primary/10 px-2 py-1" data-testid="badge-active-branch">
+            <Building2 className="h-3 w-3 text-primary shrink-0" />
+            <span className="text-xs font-medium text-primary truncate">{selectedBranch.name}</span>
+          </div>
+        )}
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

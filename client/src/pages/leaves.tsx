@@ -24,6 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, Trash2, CalendarDays, Pencil, UserCheck, FileText, Clock } from "lucide-react";
 import { useState, useMemo } from "react";
+import { useBranch } from "@/hooks/use-branch";
 import type { Leave, Employee } from "@shared/schema";
 import { leaveTypes } from "@shared/schema";
 import {
@@ -49,8 +50,10 @@ export default function LeavesPage() {
   const [formStatus, setFormStatus] = useState("approved");
   const [formNotes, setFormNotes] = useState("");
 
+  const { selectedBranchId } = useBranch();
+  const branchParam = selectedBranchId ? `?branchId=${selectedBranchId}` : "";
   const { data: leaves, isLoading: leavesLoading } = useQuery<Leave[]>({ queryKey: ["/api/leaves"] });
-  const { data: employees } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+  const { data: employees } = useQuery<Employee[]>({ queryKey: [`/api/employees${branchParam}`] });
 
   const createMutation = useMutation({
     mutationFn: async () => {

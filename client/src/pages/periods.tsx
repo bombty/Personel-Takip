@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useBranch } from "@/hooks/use-branch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,15 +39,18 @@ export default function PeriodsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [finalizeId, setFinalizeId] = useState<number | null>(null);
   const [newPeriod, setNewPeriod] = useState({ name: "", startDate: "", endDate: "" });
+  const { selectedBranchId } = useBranch();
+  const branchParam = selectedBranchId ? `?branchId=${selectedBranchId}` : "";
 
-  const { data: periods = [], isLoading } = useQuery<ReportPeriod[]>({ queryKey: ["/api/report-periods"] });
-  const { data: uploads = [] } = useQuery<Upload[]>({ queryKey: ["/api/uploads"] });
+  const { data: periods = [], isLoading } = useQuery<ReportPeriod[]>({ queryKey: [`/api/report-periods${branchParam}`] });
+  const { data: uploads = [] } = useQuery<Upload[]>({ queryKey: [`/api/uploads${branchParam}`] });
 
   const createMut = useMutation({
-    mutationFn: async (data: { name: string; startDate: string; endDate: string }) => {
+    mutationFn: async (data: { name: string; startDate: string; endDate: string; branchId?: number | null }) => {
       await apiRequest("POST", "/api/report-periods", data);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/report-periods${branchParam}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/report-periods"] });
       setCreateOpen(false);
       setNewPeriod({ name: "", startDate: "", endDate: "" });
@@ -62,6 +66,7 @@ export default function PeriodsPage() {
       await apiRequest("DELETE", `/api/report-periods/${id}`);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/report-periods${branchParam}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/report-periods"] });
       toast({ title: "Donem silindi" });
     },
@@ -75,6 +80,7 @@ export default function PeriodsPage() {
       await apiRequest("POST", `/api/report-periods/${id}/finalize`);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/report-periods${branchParam}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/report-periods"] });
       setFinalizeId(null);
       toast({ title: "Donem finalize edildi" });
@@ -86,6 +92,7 @@ export default function PeriodsPage() {
       await apiRequest("PATCH", `/api/report-periods/${id}`, { uploadIds });
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/report-periods${branchParam}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/report-periods"] });
     },
   });
@@ -180,6 +187,7 @@ export default function PeriodsPage() {
                     name: newPeriod.name || autoName(),
                     startDate: newPeriod.startDate,
                     endDate: newPeriod.endDate,
+                    branchId: selectedBranchId,
                   })}
                   disabled={!newPeriod.startDate || !newPeriod.endDate || createMut.isPending}
                   data-testid="button-save-period"

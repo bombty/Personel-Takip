@@ -3,10 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Upload as UploadIcon, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { Upload as UploadIcon, FileSpreadsheet, CheckCircle, AlertCircle, AlertTriangle, Loader2, Building2 } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { setProcessingResult } from "@/lib/store";
 import { useLocation } from "wouter";
+import { useBranch } from "@/hooks/use-branch";
+import { useQuery } from "@tanstack/react-query";
+import type { Branch } from "@shared/schema";
 import {
   Table,
   TableBody,
@@ -24,6 +27,9 @@ export default function UploadPage() {
   const [preview, setPreview] = useState<any[][] | null>(null);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const { selectedBranchId } = useBranch();
+  const { data: branches = [] } = useQuery<Branch[]>({ queryKey: ["/api/branches"] });
+  const selectedBranch = branches.find(b => b.id === selectedBranchId);
 
   const handleFile = useCallback((f: File) => {
     const validExts = [".xlsx", ".xls", ".csv", ".numbers"];
@@ -67,6 +73,9 @@ export default function UploadPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      if (selectedBranchId) {
+        formData.append("branchId", String(selectedBranchId));
+      }
       const res = await fetch("/api/upload", { method: "POST", body: formData, credentials: "include" });
       if (!res.ok) {
         const err = await res.json();
@@ -76,6 +85,7 @@ export default function UploadPage() {
       setResult(data);
       setProcessingResult(data);
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/uploads?branchId=${selectedBranchId}`] });
       toast({ title: "Basarili", description: `${data.totalRecords} kayit islendi, ${data.totalEmployees} personel tespit edildi.` });
     } catch (err: any) {
       toast({ title: "Hata", description: err.message, variant: "destructive" });
@@ -86,9 +96,22 @@ export default function UploadPage() {
 
   return (
     <div className="p-6 space-y-6 overflow-auto h-full">
-      <div>
-        <h1 className="text-2xl font-bold" data-testid="text-upload-title">Veri Yukle</h1>
-        <p className="text-sm text-muted-foreground">Parmak izi okuyucudan alinan Excel/CSV dosyasini yukleyin</p>
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-upload-title">Veri Yukle</h1>
+          <p className="text-sm text-muted-foreground">Parmak izi okuyucudan alinan Excel/CSV dosyasini yukleyin</p>
+        </div>
+        {selectedBranch ? (
+          <div className="flex items-center gap-2 bg-primary/10 text-primary px-3 py-1.5 rounded-md" data-testid="badge-selected-branch">
+            <Building2 className="h-4 w-4" />
+            <span className="text-sm font-medium">{selectedBranch.name}</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 bg-muted text-muted-foreground px-3 py-1.5 rounded-md">
+            <Building2 className="h-4 w-4" />
+            <span className="text-sm">Tum Subeler</span>
+          </div>
+        )}
       </div>
 
       <Card>

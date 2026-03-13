@@ -35,7 +35,7 @@ import {
 } from "recharts";
 import type { EmployeeSummary, WeeklyBreakdown } from "@shared/schema";
 import { Input } from "@/components/ui/input";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useBranch } from "@/hooks/use-branch";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
@@ -130,8 +130,14 @@ export default function Dashboard() {
   const { isYonetim } = useAuth();
   const { selectedBranchId } = useBranch();
 
-  const { data: uploads } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
-  const { data: periods } = useQuery<any[]>({ queryKey: ["/api/report-periods"] });
+  useEffect(() => {
+    setSelectedUploadId("");
+    setSelectedPeriodId("");
+  }, [selectedBranchId]);
+
+  const branchParam = selectedBranchId ? `?branchId=${selectedBranchId}` : "";
+  const { data: uploads } = useQuery<any[]>({ queryKey: [`/api/uploads${branchParam}`] });
+  const { data: periods } = useQuery<any[]>({ queryKey: [`/api/report-periods${branchParam}`] });
 
   const activeUploadId = useMemo(() => {
     if (dataSource === "period") return null;

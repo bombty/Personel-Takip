@@ -295,8 +295,9 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
-  app.get("/api/employees", requireAuth, async (_req, res) => {
-    res.json(await storage.getEmployees());
+  app.get("/api/employees", requireAuth, async (req, res) => {
+    const branchId = req.query.branchId ? parseInt(req.query.branchId as string) : undefined;
+    res.json(await storage.getEmployees(branchId));
   });
 
   app.post("/api/employees", requireAuth, async (req, res) => {
@@ -416,8 +417,9 @@ export async function registerRoutes(
     res.json(a);
   });
 
-  app.get("/api/uploads", requireAuth, async (_req, res) => {
-    res.json(await storage.getUploads());
+  app.get("/api/uploads", requireAuth, async (req, res) => {
+    const branchId = req.query.branchId ? parseInt(req.query.branchId as string) : undefined;
+    res.json(await storage.getUploads(branchId));
   });
 
   app.post("/api/upload", requireAuth, upload.single("file"), async (req, res) => {
@@ -463,11 +465,13 @@ export async function registerRoutes(
         });
       }
 
+      const uploadBranchId = req.body.branchId ? parseInt(req.body.branchId) : undefined;
       const uploadRecord = await storage.createUpload({
         fileName: req.file.originalname,
         totalRecords: rawData.length - dataStartRow,
         totalEmployees: 0,
         status: "processing",
+        branchId: uploadBranchId || null,
       });
 
       const attendanceRows: any[] = [];
@@ -795,9 +799,10 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/report-periods", requireAuth, async (_req, res) => {
+  app.get("/api/report-periods", requireAuth, async (req, res) => {
     try {
-      const periods = await storage.getReportPeriods();
+      const branchId = req.query.branchId ? parseInt(req.query.branchId as string) : undefined;
+      const periods = await storage.getReportPeriods(branchId);
       res.json(periods);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -806,11 +811,11 @@ export async function registerRoutes(
 
   app.post("/api/report-periods", requireRole("supervisor", "yonetim"), async (req, res) => {
     try {
-      const { name, startDate, endDate } = req.body;
+      const { name, startDate, endDate, branchId } = req.body;
       if (!name || !startDate || !endDate) {
         return res.status(400).json({ error: "name, startDate ve endDate alanlari zorunludur" });
       }
-      const period = await storage.createReportPeriod({ name, startDate, endDate });
+      const period = await storage.createReportPeriod({ name, startDate, endDate, branchId: branchId || null });
       res.json(period);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

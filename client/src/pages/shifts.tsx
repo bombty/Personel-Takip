@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useBranch } from "@/hooks/use-branch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,8 +41,11 @@ export default function ShiftsPage() {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const { selectedBranchId } = useBranch();
+  const branchParam = selectedBranchId ? `?branchId=${selectedBranchId}` : "";
+
   const { data: schedules = [] } = useQuery<WorkSchedule[]>({ queryKey: ["/api/work-schedules"] });
-  const { data: employees = [] } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+  const { data: employees = [] } = useQuery<Employee[]>({ queryKey: [`/api/employees${branchParam}`] });
   const { data: assignments = [] } = useQuery<WeeklyAssignment[]>({ queryKey: ["/api/weekly-assignments"] });
 
   const activeEmployees = employees.filter(e => e.active);
