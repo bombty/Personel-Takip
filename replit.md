@@ -106,5 +106,5 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - `POST /api/clear-data` - Clear all attendance data (yonetim only)
 
 ## Default Credentials
-- supervisor / 1234 (Supervisor role)
-- yonetim / 1234 (Yönetim role - full access)
+- supervisor / 0000 (Supervisor role)
+- admin / 0000 (Yönetim role - full access)

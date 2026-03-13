@@ -317,10 +317,10 @@ export class DatabaseStorage implements IStorage {
 
     const existingUsers = await db.select().from(users);
     if (existingUsers.length === 0) {
-      const supervisorHash = await bcrypt.hash("1234", 10);
-      const yonetimHash = await bcrypt.hash("1234", 10);
+      const supervisorHash = await bcrypt.hash("0000", 10);
+      const adminHash = await bcrypt.hash("0000", 10);
       await db.insert(users).values({ username: "supervisor", password: supervisorHash, displayName: "Supervisor", role: "supervisor" });
-      await db.insert(users).values({ username: "yonetim", password: yonetimHash, displayName: "Yonetim", role: "yonetim" });
+      await db.insert(users).values({ username: "admin", password: adminHash, displayName: "Yonetim", role: "yonetim" });
     }
 
     const existingSeasons = await db.select().from(seasons);
