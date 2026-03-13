@@ -3,6 +3,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import {
   users, type User, type InsertUser,
+  branches, type Branch, type InsertBranch,
   employees, type Employee, type InsertEmployee,
   attendanceRecords, type AttendanceRecord, type InsertAttendanceRecord,
   uploads, type Upload, type InsertUpload,
@@ -20,6 +21,12 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   getUsers(): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
+
+  getBranches(): Promise<Branch[]>;
+  getBranchById(id: number): Promise<Branch | undefined>;
+  createBranch(branch: InsertBranch): Promise<Branch>;
+  updateBranch(id: number, data: Partial<InsertBranch>): Promise<Branch | undefined>;
+  deleteBranch(id: number): Promise<void>;
 
   getEmployees(): Promise<Employee[]>;
   getEmployeeByEnNo(enNo: number): Promise<Employee | undefined>;
@@ -88,6 +95,29 @@ export class DatabaseStorage implements IStorage {
   async createUser(user: InsertUser): Promise<User> {
     const result = await db.insert(users).values(user).returning();
     return result[0];
+  }
+
+  async getBranches(): Promise<Branch[]> {
+    return db.select().from(branches).orderBy(branches.name);
+  }
+
+  async getBranchById(id: number): Promise<Branch | undefined> {
+    const result = await db.select().from(branches).where(eq(branches.id, id));
+    return result[0];
+  }
+
+  async createBranch(branch: InsertBranch): Promise<Branch> {
+    const result = await db.insert(branches).values(branch).returning();
+    return result[0];
+  }
+
+  async updateBranch(id: number, data: Partial<InsertBranch>): Promise<Branch | undefined> {
+    const result = await db.update(branches).set(data).where(eq(branches.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteBranch(id: number): Promise<void> {
+    await db.update(branches).set({ active: false }).where(eq(branches.id, id));
   }
 
   async getEmployees(): Promise<Employee[]> {
@@ -321,6 +351,14 @@ export class DatabaseStorage implements IStorage {
       const adminHash = await bcrypt.hash("0000", 10);
       await db.insert(users).values({ username: "supervisor", password: supervisorHash, displayName: "Supervisor", role: "supervisor" });
       await db.insert(users).values({ username: "admin", password: adminHash, displayName: "Yonetim", role: "yonetim" });
+    }
+
+    const existingBranches = await db.select().from(branches);
+    if (existingBranches.length === 0) {
+      const defaultBranches = ["Isiklar", "Lara", "Beachpark", "Duzce", "Samsun"];
+      for (const name of defaultBranches) {
+        await db.insert(branches).values({ name, active: true });
+      }
     }
 
     const existingSeasons = await db.select().from(seasons);

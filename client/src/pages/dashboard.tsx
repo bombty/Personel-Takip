@@ -37,6 +37,7 @@ import type { EmployeeSummary, WeeklyBreakdown } from "@shared/schema";
 import { Input } from "@/components/ui/input";
 import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useBranch } from "@/hooks/use-branch";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import {
   Table,
@@ -127,6 +128,7 @@ export default function Dashboard() {
   const [aiAnalysis, setAiAnalysis] = useState<string>("");
   const [aiLoading, setAiLoading] = useState(false);
   const { isYonetim } = useAuth();
+  const { selectedBranchId } = useBranch();
 
   const { data: uploads } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
   const { data: periods } = useQuery<any[]>({ queryKey: ["/api/report-periods"] });
@@ -149,7 +151,11 @@ export default function Dashboard() {
     enabled: !!(activeUploadId || activePeriodId),
   });
 
-  const allSummaries = reportData?.summaries || [];
+  const allSummariesRaw = reportData?.summaries || [];
+  const allSummaries = useMemo(() => {
+    if (selectedBranchId === null) return allSummariesRaw;
+    return allSummariesRaw.filter(s => s.branchId === selectedBranchId);
+  }, [allSummariesRaw, selectedBranchId]);
 
   const filteredByMonth = useMemo(() => {
     if (selectedMonth === "all") return allSummaries;

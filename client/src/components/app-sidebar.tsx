@@ -9,6 +9,8 @@ import {
   Coffee,
   Clock,
   LogOut,
+  Building2,
+  ChevronRight,
 } from "lucide-react";
 import {
   Sidebar,
@@ -25,6 +27,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
+import { useBranch } from "@/hooks/use-branch";
+import { useQuery } from "@tanstack/react-query";
+import type { Branch } from "@shared/schema";
 
 const allMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, roles: ["supervisor", "yonetim"] },
@@ -39,6 +44,9 @@ const allMenuItems = [
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout } = useAuth();
+  const { selectedBranchId, setSelectedBranchId } = useBranch();
+
+  const { data: branches = [] } = useQuery<Branch[]>({ queryKey: ["/api/branches"] });
 
   const menuItems = allMenuItems.filter(item => user && item.roles.includes(user.role));
 
@@ -56,6 +64,43 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-1">
+            <Building2 className="h-3 w-3" /> Subeler
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <div className="px-1 space-y-0.5">
+              <button
+                onClick={() => setSelectedBranchId(null)}
+                className={`w-full text-left text-xs px-2 py-1.5 rounded transition-colors flex items-center justify-between
+                  ${selectedBranchId === null
+                    ? "bg-primary text-primary-foreground font-medium"
+                    : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  }`}
+                data-testid="button-branch-all"
+              >
+                <span>Tum Subeler</span>
+                {selectedBranchId === null && <ChevronRight className="h-3 w-3" />}
+              </button>
+              {branches.map(branch => (
+                <button
+                  key={branch.id}
+                  onClick={() => setSelectedBranchId(branch.id)}
+                  className={`w-full text-left text-xs px-2 py-1.5 rounded transition-colors flex items-center justify-between
+                    ${selectedBranchId === branch.id
+                      ? "bg-primary text-primary-foreground font-medium"
+                      : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    }`}
+                  data-testid={`button-branch-${branch.id}`}
+                >
+                  <span>{branch.name}</span>
+                  {selectedBranchId === branch.id && <ChevronRight className="h-3 w-3" />}
+                </button>
+              ))}
+            </div>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         <SidebarGroup>
           <SidebarGroupLabel>Menu</SidebarGroupLabel>
           <SidebarGroupContent>

@@ -8,21 +8,23 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Save, Plus, Trash2, Clock, Timer, CalendarDays, Sun, Snowflake, Pencil, Briefcase, Shield } from "lucide-react";
+import { Save, Plus, Trash2, Clock, Timer, CalendarDays, Sun, Snowflake, Pencil, Briefcase, Shield, Building2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { Holiday, Season } from "@shared/schema";
+import type { Holiday, Season, Branch } from "@shared/schema";
 
 export default function SettingsPage() {
   const { toast } = useToast();
   const { data: settings, isLoading: settingsLoading } = useQuery<Record<string, string>>({ queryKey: ["/api/settings"] });
   const { data: holidays, isLoading: holidaysLoading } = useQuery<Holiday[]>({ queryKey: ["/api/holidays"] });
   const { data: seasons = [] } = useQuery<Season[]>({ queryKey: ["/api/seasons"] });
+  const { data: branches = [] } = useQuery<Branch[]>({ queryKey: ["/api/branches"] });
 
   const [form, setForm] = useState<Record<string, string>>({});
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [newHolidayName, setNewHolidayName] = useState("");
   const [newHolidayMultiplier, setNewHolidayMultiplier] = useState("2");
+  const [newBranchName, setNewBranchName] = useState("");
   const [seasonDialogOpen, setSeasonDialogOpen] = useState(false);
   const [editingSeason, setEditingSeason] = useState<Season | null>(null);
   const [seasonForm, setSeasonForm] = useState({
@@ -59,6 +61,25 @@ export default function SettingsPage() {
   const deleteHolidayMutation = useMutation({
     mutationFn: async (id: number) => { await apiRequest("DELETE", `/api/holidays/${id}`); },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/holidays"] }); },
+  });
+
+  const addBranchMutation = useMutation({
+    mutationFn: async () => { await apiRequest("POST", "/api/branches", { name: newBranchName }); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/branches"] });
+      setNewBranchName("");
+      toast({ title: "Sube eklendi" });
+    },
+    onError: () => toast({ title: "Hata", description: "Sube eklenemedi", variant: "destructive" }),
+  });
+
+  const deleteBranchMutation = useMutation({
+    mutationFn: async (id: number) => { await apiRequest("DELETE", `/api/branches/${id}`); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/branches"] });
+      toast({ title: "Sube silindi" });
+    },
+    onError: () => toast({ title: "Hata", description: "Sube silinemedi (bagli personel olabilir)", variant: "destructive" }),
   });
 
   const saveSeasonMut = useMutation({
@@ -435,6 +456,62 @@ export default function SettingsPage() {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground text-center py-4">Resmi tatil eklenmemis</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Branch Management */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Building2 className="h-4 w-4" /> Sube Yonetimi
+          </CardTitle>
+          <CardDescription>Cafe subelerini ekle, duzenle veya sil</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-3 items-end">
+            <div className="flex-1">
+              <Label className="text-xs">Sube Adi</Label>
+              <Input
+                value={newBranchName}
+                onChange={(e) => setNewBranchName(e.target.value)}
+                placeholder="Ornek: Merkez"
+                data-testid="input-branch-name"
+                onKeyDown={(e) => e.key === "Enter" && newBranchName.trim() && addBranchMutation.mutate()}
+              />
+            </div>
+            <Button
+              onClick={() => addBranchMutation.mutate()}
+              disabled={!newBranchName.trim() || addBranchMutation.isPending}
+              data-testid="button-add-branch"
+            >
+              <Plus className="h-4 w-4 mr-1" /> Ekle
+            </Button>
+          </div>
+
+          {branches.length > 0 ? (
+            <div className="space-y-2">
+              {branches.map((branch) => (
+                <div key={branch.id} className="flex items-center justify-between gap-2 border-b border-border pb-2 last:border-0">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{branch.name}</span>
+                    {!branch.active && <Badge variant="outline" className="text-xs">Pasif</Badge>}
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    onClick={() => deleteBranchMutation.mutate(branch.id)}
+                    disabled={deleteBranchMutation.isPending}
+                    data-testid={`button-delete-branch-${branch.id}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">Henuz sube eklenmemis</p>
           )}
         </CardContent>
       </Card>

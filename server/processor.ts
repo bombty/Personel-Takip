@@ -860,6 +860,7 @@ export function processAttendanceData(
       enNo,
       name: capitalizedName,
       department: empRecord?.department || undefined,
+      branchId: empRecord?.branchId || undefined,
       employmentType,
       weeklyHoursExpected: weeklyHours,
       workDays,

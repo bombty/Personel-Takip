@@ -23,6 +23,7 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - `server/schedule-parser.ts` - Excel/CSV shift plan parser (Format A single-week, Format B multi-week)
 - `server/index.ts` - Express server with session middleware
 - `client/src/hooks/use-auth.tsx` - AuthContext/Provider for login/logout/role management
+- `client/src/hooks/use-branch.tsx` - BranchContext/Provider for branch filter selection (persisted in localStorage)
 - `client/src/` - React frontend with pages and components
 
 ## Pages
@@ -34,9 +35,17 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 6. **Vardiya Plani** (`/shifts`) - Work schedule templates + weekly assignment table + shift plan Excel upload (tabs: Programlar, Haftalik Atama, Sift Plani Yukle)
 7. **Izin Yonetimi** (`/leaves`) - Leave management (add/delete/view)
 8. **Donemler** (`/periods`) - Report period management (create/finalize/export/archive)
-9. **Ayarlar** (`/settings`) - Season management (Yaz/Kış hours), work rules, holidays (yonetim only)
+9. **Ayarlar** (`/settings`) - Season management (Yaz/Kış hours), work rules, holidays, branch management (yonetim only)
+
+## Database Tables
+- `users`, `employees` (with `branch_id`), `attendance_records`, `uploads`
+- `work_schedules` (with `short_code`), `weekly_assignments`
+- `leaves`, `holidays`, `seasons`, `settings`
+- `report_periods` (status: draft/final/archived)
+- `branches` (id, name, active)
 
 ## Key Features (v3.0)
+- **Multi-branch (Şube) support:** 5 default branches (Işıklar, Lara, Beachpark, Düzce, Samsun); sidebar branch filter; employees assigned to branches; dashboard filters by selected branch; settings branch management (yonetim only)
 - Session-based authentication with 2 roles (supervisor, yonetim)
 - Excel/CSV/Numbers upload with automatic column detection + headerless file fallback
 - Seasonal cafe hours: Kış (Nov-Mar) weekday 08:00-00:00, Cuma-Cmt 08:00-02:00; Yaz (Apr-Oct) weekday 08:00-01:00, Cuma-Cmt 08:00-02:00

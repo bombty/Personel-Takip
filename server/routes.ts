@@ -270,6 +270,31 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  app.get("/api/branches", requireAuth, async (_req, res) => {
+    const all = await storage.getBranches();
+    res.json(all.filter(b => b.active));
+  });
+
+  app.post("/api/branches", requireRole("yonetim"), async (req, res) => {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: "Sube adi zorunlu" });
+    const branch = await storage.createBranch({ name: name.trim(), active: true });
+    res.json(branch);
+  });
+
+  app.patch("/api/branches/:id", requireRole("yonetim"), async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    const updated = await storage.updateBranch(id, req.body);
+    if (!updated) return res.status(404).json({ error: "Sube bulunamadi" });
+    res.json(updated);
+  });
+
+  app.delete("/api/branches/:id", requireRole("yonetim"), async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    await storage.deleteBranch(id);
+    res.json({ success: true });
+  });
+
   app.get("/api/employees", requireAuth, async (_req, res) => {
     res.json(await storage.getEmployees());
   });

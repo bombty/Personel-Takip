@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { BranchProvider } from "@/hooks/use-branch";
 import Dashboard from "@/pages/dashboard";
 import UploadPage from "@/pages/upload";
 import EmployeesPage from "@/pages/employees";
@@ -77,7 +78,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
-          <AuthenticatedApp />
+          <BranchProvider>
+            <AuthenticatedApp />
+          </BranchProvider>
         </AuthProvider>
         <Toaster />
       </TooltipProvider>

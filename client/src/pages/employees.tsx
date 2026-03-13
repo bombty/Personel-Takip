@@ -12,9 +12,9 @@ import { Link } from "wouter";
 import { Users, ChevronRight, Plus, Pencil, Trash2 } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee } from "@shared/schema";
+import type { Employee, Branch } from "@shared/schema";
 
-const emptyForm = { name: "", enNo: 0, department: "", position: "", phone: "", hireDate: "", leaveDate: "", employmentType: "full_time" as string, weeklyHours: 45 };
+const emptyForm = { name: "", enNo: 0, department: "", position: "", phone: "", hireDate: "", leaveDate: "", employmentType: "full_time" as string, weeklyHours: 45, branchId: null as number | null };
 
 export default function EmployeesPage() {
   const [search, setSearch] = useState("");
@@ -25,6 +25,7 @@ export default function EmployeesPage() {
   const { toast } = useToast();
 
   const { data: employees, isLoading } = useQuery<Employee[]>({ queryKey: ["/api/employees"] });
+  const { data: branches = [] } = useQuery<Branch[]>({ queryKey: ["/api/branches"] });
 
   const filtered = useMemo(() => {
     if (!employees) return [];
@@ -67,7 +68,7 @@ export default function EmployeesPage() {
 
   const openEdit = (e: Employee) => {
     setEditId(e.id);
-    setForm({ name: e.name, enNo: e.enNo, department: e.department || "", position: e.position || "", phone: e.phone || "", hireDate: e.hireDate || "", leaveDate: e.leaveDate || "", employmentType: e.employmentType || "full_time", weeklyHours: e.weeklyHours || 45 });
+    setForm({ name: e.name, enNo: e.enNo, department: e.department || "", position: e.position || "", phone: e.phone || "", hireDate: e.hireDate || "", leaveDate: e.leaveDate || "", employmentType: e.employmentType || "full_time", weeklyHours: e.weeklyHours || 45, branchId: (e as any).branchId || null });
     setEditOpen(true);
   };
 
@@ -136,14 +137,33 @@ export default function EmployeesPage() {
           </Select>
         </div>
       </div>
-      <div>
-        <Label>Haftalik Calisma Saati</Label>
-        <Input
-          type="number"
-          value={form.weeklyHours || ""}
-          onChange={e => setForm({ ...form, weeklyHours: parseInt(e.target.value) || 0 })}
-          data-testid="input-emp-weekly-hours"
-        />
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>Haftalik Calisma Saati</Label>
+          <Input
+            type="number"
+            value={form.weeklyHours || ""}
+            onChange={e => setForm({ ...form, weeklyHours: parseInt(e.target.value) || 0 })}
+            data-testid="input-emp-weekly-hours"
+          />
+        </div>
+        <div>
+          <Label>Sube</Label>
+          <Select
+            value={form.branchId ? String(form.branchId) : "none"}
+            onValueChange={(val) => setForm({ ...form, branchId: val === "none" ? null : parseInt(val) })}
+          >
+            <SelectTrigger data-testid="select-emp-branch">
+              <SelectValue placeholder="Sube secin" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">-- Sube Sec --</SelectItem>
+              {branches.map(b => (
+                <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
     </div>
   );
@@ -217,6 +237,9 @@ export default function EmployeesPage() {
                         </Badge>
                         {e.department && <Badge variant="secondary" className="text-xs">{e.department}</Badge>}
                         {e.position && <span className="text-xs text-muted-foreground">{e.position}</span>}
+                        {(e as any).branchId && branches.find(b => b.id === (e as any).branchId) && (
+                          <Badge variant="outline" className="text-xs font-normal">{branches.find(b => b.id === (e as any).branchId)!.name}</Badge>
+                        )}
                         {e.leaveDate && (
                           <Badge variant="destructive" className="text-xs" data-testid={`badge-leave-date-${e.enNo}`}>
                             Ayrildi: {e.leaveDate}

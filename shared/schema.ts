@@ -15,6 +15,16 @@ export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
+export const branches = pgTable("branches", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  active: boolean("active").default(true),
+});
+
+export const insertBranchSchema = createInsertSchema(branches).omit({ id: true });
+export type InsertBranch = z.infer<typeof insertBranchSchema>;
+export type Branch = typeof branches.$inferSelect;
+
 export const employees = pgTable("employees", {
   id: serial("id").primaryKey(),
   enNo: integer("en_no").notNull(),
@@ -27,6 +37,7 @@ export const employees = pgTable("employees", {
   active: boolean("active").default(true),
   employmentType: text("employment_type").default("full_time"),
   weeklyHours: integer("weekly_hours").default(45),
+  branchId: integer("branch_id"),
 });
 
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
@@ -228,6 +239,8 @@ export interface EmployeeSummary {
   enNo: number;
   name: string;
   department?: string;
+  branchId?: number;
+  branchName?: string;
   employmentType: string;
   weeklyHoursExpected: number;
   workDays: number;
