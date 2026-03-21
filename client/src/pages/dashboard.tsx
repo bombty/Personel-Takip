@@ -307,20 +307,27 @@ export default function Dashboard() {
     }
   }
 
-  if (!uploads || uploads.length === 0) {
+  if ((!uploads || uploads.length === 0) && (!periods || periods.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8">
         <div className="text-center max-w-md">
           <BarChart3 className="h-16 w-16 text-muted-foreground mx-auto mb-4 opacity-40" />
           <h2 className="text-xl font-semibold mb-2">Henuz veri yuklemesi yok</h2>
-          <p className="text-muted-foreground mb-6">
-            Dashboard'u gormek icin once parmak izi verilerinizi yukleyin.
+          <p className="text-muted-foreground mb-4">
+            Dashboard ve Excel export icin once parmak izi verilerinizi yukleyin.
           </p>
-          <Link href="/upload" data-testid="link-go-upload">
-            <Badge variant="default" className="cursor-pointer text-sm px-4 py-2">
-              Veri Yukle
-            </Badge>
-          </Link>
+          <div className="flex gap-3 justify-center flex-wrap">
+            <Link href="/upload" data-testid="link-go-upload">
+              <Button size="sm">
+                <Upload className="h-4 w-4 mr-1" /> Veri Yukle
+              </Button>
+            </Link>
+            <Link href="/periods" data-testid="link-go-periods">
+              <Button size="sm" variant="outline">
+                <CalendarCheck className="h-4 w-4 mr-1" /> Donemler
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -445,13 +452,19 @@ export default function Dashboard() {
               AI Rapor
             </Button>
           )}
-          {isYonetim && activeUploadId && (
+          {activeUploadId ? (
             <a href={`/api/export/${activeUploadId}`} target="_blank" rel="noreferrer">
               <Button variant="outline" size="sm" data-testid="button-export">
                 <Download className="h-4 w-4 mr-1" /> Excel
               </Button>
             </a>
-          )}
+          ) : activePeriodId ? (
+            <a href={`/api/export/period/${activePeriodId}`} target="_blank" rel="noreferrer">
+              <Button variant="outline" size="sm" data-testid="button-export-period">
+                <Download className="h-4 w-4 mr-1" /> Excel
+              </Button>
+            </a>
+          ) : null}
         </div>
       </div>
 
