@@ -602,10 +602,35 @@ export function processAttendanceData(
         filteredPunches.push(allPunches[i]);
       }
 
-      const punchCount = filteredPunches.length;
-      const statuses: string[] = [];
+      // Akıllı çift okutma tespiti: Mola dönüşü çift basıldıysa veya
+      // 2-20 dakika arayla ardışık okutma varsa duplikat temizle.
+      // Kural: duplikat olan okutmayı (ikinci olanı) kaldır, bunu raporla.
+      let dupRemovedCount = 0;
+      const deduped: Date[] = [];
+      for (let i = 0; i < filteredPunches.length; i++) {
+        if (i < filteredPunches.length - 1) {
+          const gap = (filteredPunches[i + 1].getTime() - filteredPunches[i].getTime()) / 60000;
+          // Çok kısa aralık (2-20 dk): bir sonraki okutma duplikattır
+          if (gap >= 2 && gap < 20) {
+            // Duplikatı atla (bir sonraki i zaten alınmayacak)
+            deduped.push(filteredPunches[i]);
+            i++; // duplikat okutmayı atla
+            dupRemovedCount++;
+            continue;
+          }
+        }
+        deduped.push(filteredPunches[i]);
+      }
+      const finalPunches = dupRemovedCount > 0 ? deduped : filteredPunches;
 
-      const punchResult = buildPairsFromPunches(filteredPunches, schedule.breakMinutes);
+      const punchCount = finalPunches.length;
+      const rawPunchCount = filteredPunches.length; // duplikat temizlenmeden önce
+      const statuses: string[] = [];
+      if (dupRemovedCount > 0) {
+        statuses.push(`Cift Okutma Duzeltildi (${rawPunchCount}->${punchCount})`);
+      }
+
+      const punchResult = buildPairsFromPunches(finalPunches, schedule.breakMinutes);
       const { pairs, workMinutes: dayWorkMinutes, breakDeducted, classification, breakMinutesActual } = punchResult;
 
       for (const w of punchResult.warnings) {
