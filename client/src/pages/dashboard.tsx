@@ -22,6 +22,7 @@ import {
   Calendar,
   Sparkles,
   Loader2,
+  Upload,
 } from "lucide-react";
 import {
   BarChart,
