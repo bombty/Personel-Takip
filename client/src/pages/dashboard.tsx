@@ -23,6 +23,7 @@ import {
   Sparkles,
   Loader2,
   Upload,
+  Building2,
 } from "lucide-react";
 import {
   BarChart,
@@ -128,6 +129,7 @@ export default function Dashboard() {
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState<string>("");
   const [aiLoading, setAiLoading] = useState(false);
+  const [exportFilter, setExportFilter] = useState<"all" | "deficit" | "overtime" | "issues">("all");
   const { isYonetim } = useAuth();
   const { selectedBranchId } = useBranch();
 
@@ -139,6 +141,7 @@ export default function Dashboard() {
   const branchParam = selectedBranchId ? `?branchId=${selectedBranchId}` : "";
   const { data: uploads } = useQuery<any[]>({ queryKey: [`/api/uploads${branchParam}`] });
   const { data: periods } = useQuery<any[]>({ queryKey: [`/api/report-periods${branchParam}`] });
+  const { data: branchStats } = useQuery<any[]>({ queryKey: ["/api/branches/stats"], enabled: selectedBranchId === null });
 
   const activeUploadId = useMemo(() => {
     if (dataSource === "period") return null;
@@ -454,11 +457,24 @@ export default function Dashboard() {
             </Button>
           )}
           {activeUploadId ? (
-            <a href={`/api/export/${activeUploadId}`} target="_blank" rel="noreferrer">
-              <Button variant="outline" size="sm" data-testid="button-export">
-                <Download className="h-4 w-4 mr-1" /> Excel
-              </Button>
-            </a>
+            <div className="flex items-center gap-1">
+              <Select value={exportFilter} onValueChange={(v) => setExportFilter(v as any)}>
+                <SelectTrigger className="w-[130px] h-8 text-xs" data-testid="select-export-filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tum Personel</SelectItem>
+                  <SelectItem value="deficit">Eksik Mesai</SelectItem>
+                  <SelectItem value="overtime">Fazla Mesai</SelectItem>
+                  <SelectItem value="issues">Sorunlu</SelectItem>
+                </SelectContent>
+              </Select>
+              <a href={`/api/export/${activeUploadId}?filter=${exportFilter}`} target="_blank" rel="noreferrer">
+                <Button variant="outline" size="sm" data-testid="button-export">
+                  <Download className="h-4 w-4 mr-1" /> Excel
+                </Button>
+              </a>
+            </div>
           ) : activePeriodId ? (
             <a href={`/api/export/period/${activePeriodId}`} target="_blank" rel="noreferrer">
               <Button variant="outline" size="sm" data-testid="button-export-period">
@@ -468,6 +484,34 @@ export default function Dashboard() {
           ) : null}
         </div>
       </div>
+
+      {!selectedBranchId && branchStats && branchStats.length > 0 && !stats && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-muted-foreground">Sube Ozeti</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {branchStats.map((b: any) => (
+              <Card key={b.id} data-testid={`card-branch-stats-${b.id}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold truncate">{b.name}</span>
+                  </div>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <div className="flex justify-between">
+                      <span>Personel</span>
+                      <span className="font-mono font-medium text-foreground">{b.employeeCount}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Bugun Izinli</span>
+                      <span className="font-mono font-medium text-amber-500">{b.onLeaveCount}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {stats && (
         <>

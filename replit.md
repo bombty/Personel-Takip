@@ -38,7 +38,7 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 9. **Ayarlar** (`/settings`) - Season management (Yaz/Kış hours), work rules, holidays, branch management (yonetim only)
 
 ## Database Tables
-- `users`, `employees` (with `branch_id`), `attendance_records`, `uploads`
+- `users`, `employees` (with `branch_id`, `annual_leave_quota`), `attendance_records`, `uploads`
 - `work_schedules` (with `short_code`), `weekly_assignments`
 - `leaves`, `holidays`, `seasons`, `settings`
 - `report_periods` (status: draft/final/archived)
@@ -65,10 +65,14 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - **v3: Shift plan Excel/CSV upload** — Format A (single week) and Format B (multi-week) with short code resolution and conflict handling
 - **v3: Report periods** — Monthly report period management with create/finalize/export, upload association, period-based dashboard viewing
 - **v3: Missing assignment warnings** — missingAssignmentWeeks field on EmployeeSummary, yellow banner on employee detail page
+- **Annual leave balance tracking:** `annualLeaveQuota` field on employees (default 14 days); leaves page shows quota/used/remaining with progress bar per employee
+- **Filtered Excel export:** `?filter=deficit|overtime|issues|all` query param; dashboard shows export filter selector before download
+- **Branch comparison panel:** Dashboard shows per-branch staff count + today's on-leave count when "Tüm Şubeler" is selected and no report is loaded; powered by `GET /api/branches/stats`
+- **Atama Boşlukları tab:** Shifts page 4th tab shows employees without assignments for current week, with badge count and direct link to assignment table
 - Overtime, deficit, late, early leave calculations
 - Holiday calendar with salary multipliers
 - Leave management system
-- Excel report export (3-sheet workbook)
+- Excel report export (3-sheet workbook, filterable)
 - **Weekly 45-hour rule** (Turkish labor law)
 - **Employment type support:** Full-time (45h/week) and Part-time (30h/week)
 - **Monthly pay period** calculation with performance percentage
@@ -104,8 +108,9 @@ A full-stack web application for DOSPRESSO (cafe chain) that tracks employee att
 - `POST /api/upload-schedule` - Shift plan Excel/CSV upload
 - `GET /api/report/:uploadId` - Report data (upload-based)
 - `GET /api/report/period/:periodId` - Report data (period-based)
-- `GET /api/export/:uploadId` - Excel export (upload-based)
+- `GET /api/export/:uploadId?filter=all|deficit|overtime|issues` - Filtered Excel export (upload-based)
 - `GET /api/export/period/:periodId` - Excel export (period-based)
+- `GET /api/branches/stats` - Per-branch summary (employee count + today's on-leave count)
 - `GET/POST/PATCH/DELETE /api/report-periods` - Report period CRUD
 - `POST /api/report-periods/:id/finalize` - Finalize (lock) a report period
 - `GET/POST/PATCH/DELETE /api/leaves` - Leave CRUD

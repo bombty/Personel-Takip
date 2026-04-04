@@ -176,10 +176,12 @@ export default function LeavesPage() {
   const employeeSummaries = useMemo(() => {
     if (!leaves || !employees) return [];
     const approvedLeaves = leaves.filter(l => l.status === "approved");
-    const empMap = new Map<number, { name: string; totalDays: number; annualDays: number; reportDays: number; unpaidDays: number; sickDays: number; otherDays: number }>();
+    const empMap = new Map<number, { name: string; totalDays: number; annualDays: number; reportDays: number; unpaidDays: number; sickDays: number; otherDays: number; annualLeaveQuota: number }>();
 
     for (const l of approvedLeaves) {
       const days = getDayCount(l.startDate, l.endDate);
+      const emp = employees.find(e => e.id === l.employeeId);
+      const quota = (emp as any)?.annualLeaveQuota ?? 14;
       const existing = empMap.get(l.employeeId) || {
         name: getEmployeeName(l.employeeId),
         totalDays: 0,
@@ -188,6 +190,7 @@ export default function LeavesPage() {
         unpaidDays: 0,
         sickDays: 0,
         otherDays: 0,
+        annualLeaveQuota: quota,
       };
       existing.totalDays += days;
       if (l.type === "annual") existing.annualDays += days;
@@ -353,41 +356,57 @@ export default function LeavesPage() {
 
       {employeeSummaries.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {employeeSummaries.slice(0, 8).map((s) => (
-            <Card key={s.employeeId} data-testid={`card-leave-summary-${s.employeeId}`}>
-              <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium truncate">{s.name}</CardTitle>
-                <Badge variant="secondary">{s.totalDays} gun</Badge>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {employeeSummaries.slice(0, 8).map((s) => {
+            const annualRemaining = s.annualLeaveQuota - s.annualDays;
+            const balancePct = Math.min(100, Math.round((s.annualDays / s.annualLeaveQuota) * 100));
+            return (
+              <Card key={s.employeeId} data-testid={`card-leave-summary-${s.employeeId}`}>
+                <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium truncate">{s.name}</CardTitle>
+                  <Badge variant="secondary">{s.totalDays} gun</Badge>
+                </CardHeader>
+                <CardContent className="space-y-2">
                   {s.annualDays > 0 && (
-                    <span className="flex items-center gap-1" data-testid={`text-annual-days-${s.employeeId}`}>
-                      <CalendarDays className="h-3 w-3" /> Yillik: {s.annualDays}
-                    </span>
+                    <div className="space-y-1" data-testid={`leave-balance-${s.employeeId}`}>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground flex items-center gap-1"><CalendarDays className="h-3 w-3" /> Yillik Izin</span>
+                        <span className="font-medium">{s.annualDays} / {s.annualLeaveQuota} gun</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${balancePct >= 80 ? "bg-red-500" : balancePct >= 50 ? "bg-amber-500" : "bg-emerald-500"}`}
+                          style={{ width: `${balancePct}%` }}
+                        />
+                      </div>
+                      <p className={`text-xs font-medium ${annualRemaining <= 0 ? "text-red-500" : annualRemaining <= 3 ? "text-amber-500" : "text-emerald-600"}`}>
+                        {annualRemaining > 0 ? `${annualRemaining} gun kaldi` : "Hak tukendi"}
+                      </p>
+                    </div>
                   )}
-                  {s.reportDays > 0 && (
-                    <span className="flex items-center gap-1" data-testid={`text-report-days-${s.employeeId}`}>
-                      <FileText className="h-3 w-3" /> Rapor: {s.reportDays}
-                    </span>
-                  )}
-                  {s.sickDays > 0 && (
-                    <span className="flex items-center gap-1" data-testid={`text-sick-days-${s.employeeId}`}>
-                      <Clock className="h-3 w-3" /> Hastalik: {s.sickDays}
-                    </span>
-                  )}
-                  {s.unpaidDays > 0 && (
-                    <span className="flex items-center gap-1" data-testid={`text-unpaid-days-${s.employeeId}`}>
-                      <UserCheck className="h-3 w-3" /> Ucretsiz: {s.unpaidDays}
-                    </span>
-                  )}
-                  {s.otherDays > 0 && (
-                    <span data-testid={`text-other-days-${s.employeeId}`}>Diger: {s.otherDays}</span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {s.reportDays > 0 && (
+                      <span className="flex items-center gap-1" data-testid={`text-report-days-${s.employeeId}`}>
+                        <FileText className="h-3 w-3" /> Rapor: {s.reportDays}
+                      </span>
+                    )}
+                    {s.sickDays > 0 && (
+                      <span className="flex items-center gap-1" data-testid={`text-sick-days-${s.employeeId}`}>
+                        <Clock className="h-3 w-3" /> Hastalik: {s.sickDays}
+                      </span>
+                    )}
+                    {s.unpaidDays > 0 && (
+                      <span className="flex items-center gap-1" data-testid={`text-unpaid-days-${s.employeeId}`}>
+                        <UserCheck className="h-3 w-3" /> Ucretsiz: {s.unpaidDays}
+                      </span>
+                    )}
+                    {s.otherDays > 0 && (
+                      <span data-testid={`text-other-days-${s.employeeId}`}>Diger: {s.otherDays}</span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 

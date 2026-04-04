@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useBranch } from "@/hooks/use-branch";
 import type { Employee, Branch } from "@shared/schema";
 
-const emptyForm = { name: "", enNo: 0, department: "", position: "", phone: "", hireDate: "", leaveDate: "", employmentType: "full_time" as string, weeklyHours: 45, branchId: null as number | null };
+const emptyForm = { name: "", enNo: 0, department: "", position: "", phone: "", hireDate: "", leaveDate: "", employmentType: "full_time" as string, weeklyHours: 45, branchId: null as number | null, annualLeaveQuota: 14 };
 
 export default function EmployeesPage() {
   const [search, setSearch] = useState("");
@@ -74,7 +74,7 @@ export default function EmployeesPage() {
 
   const openEdit = (e: Employee) => {
     setEditId(e.id);
-    setForm({ name: e.name, enNo: e.enNo, department: e.department || "", position: e.position || "", phone: e.phone || "", hireDate: e.hireDate || "", leaveDate: e.leaveDate || "", employmentType: e.employmentType || "full_time", weeklyHours: e.weeklyHours || 45, branchId: (e as any).branchId || null });
+    setForm({ name: e.name, enNo: e.enNo, department: e.department || "", position: e.position || "", phone: e.phone || "", hireDate: e.hireDate || "", leaveDate: e.leaveDate || "", employmentType: e.employmentType || "full_time", weeklyHours: e.weeklyHours || 45, branchId: (e as any).branchId || null, annualLeaveQuota: (e as any).annualLeaveQuota ?? 14 });
     setEditOpen(true);
   };
 
@@ -154,22 +154,31 @@ export default function EmployeesPage() {
           />
         </div>
         <div>
-          <Label>Sube</Label>
-          <Select
-            value={form.branchId ? String(form.branchId) : "none"}
-            onValueChange={(val) => setForm({ ...form, branchId: val === "none" ? null : parseInt(val) })}
-          >
-            <SelectTrigger data-testid="select-emp-branch">
-              <SelectValue placeholder="Sube secin" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">-- Sube Sec --</SelectItem>
-              {branches.map(b => (
-                <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label>Yillik Izin Hakki (gun)</Label>
+          <Input
+            type="number"
+            value={form.annualLeaveQuota ?? 14}
+            onChange={e => setForm({ ...form, annualLeaveQuota: parseInt(e.target.value) || 14 })}
+            data-testid="input-emp-leave-quota"
+          />
         </div>
+      </div>
+      <div>
+        <Label>Sube</Label>
+        <Select
+          value={form.branchId ? String(form.branchId) : "none"}
+          onValueChange={(val) => setForm({ ...form, branchId: val === "none" ? null : parseInt(val) })}
+        >
+          <SelectTrigger data-testid="select-emp-branch">
+            <SelectValue placeholder="Sube secin" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">-- Sube Sec --</SelectItem>
+            {branches.map(b => (
+              <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
     </div>
   );

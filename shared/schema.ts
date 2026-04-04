@@ -38,6 +38,7 @@ export const employees = pgTable("employees", {
   employmentType: text("employment_type").default("full_time"),
   weeklyHours: integer("weekly_hours").default(45),
   branchId: integer("branch_id"),
+  annualLeaveQuota: integer("annual_leave_quota").default(14),
 });
 
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });

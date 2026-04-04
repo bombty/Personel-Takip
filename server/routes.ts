@@ -665,9 +665,40 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/branches/stats", requireAuth, async (req, res) => {
+    try {
+      const branches = await storage.getBranches();
+      const allEmployees = await storage.getEmployees();
+      const allLeaves = await storage.getLeaves();
+      const today = new Date().toISOString().split("T")[0];
+
+      const stats = branches.map(b => {
+        const branchEmps = allEmployees.filter(e => e.active && (e as any).branchId === b.id);
+        const empIds = new Set(branchEmps.map(e => e.id));
+        const activeLeaves = allLeaves.filter(l =>
+          empIds.has(l.employeeId) &&
+          l.status === "approved" &&
+          l.startDate <= today &&
+          l.endDate >= today
+        );
+        return {
+          id: b.id,
+          name: b.name,
+          color: b.color,
+          employeeCount: branchEmps.length,
+          onLeaveCount: activeLeaves.length,
+        };
+      });
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/export/:uploadId", requireAuth, async (req, res) => {
     try {
       const uploadId = parseInt(req.params.uploadId);
+      const filter = (req.query.filter as string) || "all";
       const records = await storage.getAttendanceRecordsByUpload(uploadId);
       const settingsMap = await storage.getSettings();
       const holidaysList = await storage.getHolidays();
@@ -677,10 +708,15 @@ export async function registerRoutes(
       for (const emp of allEmployees) { employeeIdMap.set(emp.id, emp.enNo); }
       const assignments = await storage.getWeeklyAssignments();
       const schedules = await storage.getWorkSchedules();
-      const summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules, allEmployees);
+      let summaries = processAttendanceData(records, settingsMap, holidaysList, leavesList, employeeIdMap, assignments, schedules, allEmployees);
+
+      if (filter === "deficit") summaries = summaries.filter(s => s.totalDeficitMinutes > 0);
+      else if (filter === "overtime") summaries = summaries.filter(s => s.totalOvertimeMinutes > 0);
+      else if (filter === "issues") summaries = summaries.filter(s => s.issueCount > 0);
 
       const wb = XLSX.utils.book_new();
 
+      const filterLabel = filter === "deficit" ? " (Eksik Mesai)" : filter === "overtime" ? " (Fazla Mesai)" : filter === "issues" ? " (Sorunlu)" : "";
       const summaryData = summaries.map(s => ({
         "Personel": s.name,
         "Sicil No": s.enNo,
@@ -745,7 +781,8 @@ export async function registerRoutes(
 
       const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.setHeader("Content-Disposition", `attachment; filename=PDKS_Rapor_${uploadId}.xlsx`);
+      const safeFilter = filter !== "all" ? `_${filter}` : "";
+      res.setHeader("Content-Disposition", `attachment; filename=PDKS_Rapor_${uploadId}${safeFilter}.xlsx`);
       res.send(buffer);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

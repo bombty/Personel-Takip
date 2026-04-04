@@ -180,6 +180,15 @@ export default function ShiftsPage() {
           <TabsTrigger value="program" data-testid="tab-program">Programlar</TabsTrigger>
           <TabsTrigger value="haftalik" data-testid="tab-haftalik">Haftalik Atama</TabsTrigger>
           <TabsTrigger value="yukle" data-testid="tab-yukle">Sift Plani Yukle</TabsTrigger>
+          <TabsTrigger value="bosluklar" data-testid="tab-bosluklar">
+            Atama Bosluklari
+            {(() => {
+              const missing = activeEmployees.filter(e => !assignments.find(a => a.employeeId === e.id && a.weekStartDate === monday));
+              return missing.length > 0 ? (
+                <Badge variant="destructive" className="ml-1.5 text-xs px-1.5 py-0">{missing.length}</Badge>
+              ) : null;
+            })()}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="program" className="space-y-4">
@@ -421,6 +430,78 @@ export default function ShiftsPage() {
                   )}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="bosluklar" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                Bu Hafta Atamasi Olmayan Personel
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Hafta: {monday} — {weekDays[6]?.date}
+              </p>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const missing = activeEmployees.filter(e => !assignments.find(a => a.employeeId === e.id && a.weekStartDate === monday));
+                const hasAssignment = activeEmployees.filter(e => assignments.find(a => a.employeeId === e.id && a.weekStartDate === monday));
+                if (missing.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <CheckCircle className="h-10 w-10 text-emerald-500 mb-3" />
+                      <p className="font-medium text-emerald-600">Tum personel atamali</p>
+                      <p className="text-sm text-muted-foreground">{hasAssignment.length} personelin bu hafta atamasi var</p>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4 text-sm">
+                      <span className="flex items-center gap-1.5 text-red-500 font-medium">
+                        <AlertTriangle className="h-4 w-4" /> {missing.length} atama eksik
+                      </span>
+                      <span className="flex items-center gap-1.5 text-emerald-600">
+                        <CheckCircle className="h-4 w-4" /> {hasAssignment.length} atamali
+                      </span>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Personel</TableHead>
+                          <TableHead>Sicil No</TableHead>
+                          <TableHead>Departman</TableHead>
+                          <TableHead className="text-right">Islem</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {missing.map(e => (
+                          <TableRow key={e.id} data-testid={`row-missing-${e.enNo}`}>
+                            <TableCell className="font-medium">
+                              {e.name.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ")}
+                            </TableCell>
+                            <TableCell className="font-mono text-sm">{e.enNo}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm">{e.department || "—"}</TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => { setActiveTab("haftalik"); }}
+                                data-testid={`button-go-assign-${e.enNo}`}
+                              >
+                                Atama Yap
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </TabsContent>
