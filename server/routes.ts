@@ -17,9 +17,20 @@ function localDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function normalizeTurkish(str: string): string {
+  return str
+    .replace(/İ/g, "i").replace(/I/g, "i")
+    .replace(/Ş/g, "s").replace(/ş/g, "s")
+    .replace(/Ğ/g, "g").replace(/ğ/g, "g")
+    .replace(/Ü/g, "u").replace(/ü/g, "u")
+    .replace(/Ö/g, "o").replace(/ö/g, "o")
+    .replace(/Ç/g, "c").replace(/ç/g, "c")
+    .toLowerCase().trim();
+}
+
 function safeStr(val: any): string {
   if (val == null) return "";
-  return String(val).toLowerCase().trim();
+  return normalizeTurkish(String(val));
 }
 
 function detectColumns(headers: any[]): Record<string, number> {
@@ -31,7 +42,7 @@ function detectColumns(headers: any[]): Record<string, number> {
 
   const nameKeys = ["name", "ad", "personel", "isim", "calisan", "sicil"];
   const dateKeys = ["datetime", "tarih", "date", "zaman", "time"];
-  const enNoKeys = ["enno", "no", "sicil", "id", "numara"];
+  const enNoKeys = ["enno", "no", "sicil", "id", "numara", "kod"];
   const inOutKeys = ["in/out", "giris", "cikis", "tip"];
 
   for (let i = 0; i < lowerHeaders.length; i++) {
@@ -42,7 +53,7 @@ function detectColumns(headers: any[]): Record<string, number> {
       mapping.name = i;
     }
     if (!mapping.dateTime && dateKeys.some(k => h.includes(k))) mapping.dateTime = i;
-    if (!mapping.enNo && enNoKeys.some(k => h === k || (h.includes(k) && h !== "tmno" && h !== "gmno"))) mapping.enNo = i;
+    if (mapping.enNo === undefined && enNoKeys.some(k => h === k || (h.includes(k) && h !== "tmno" && h !== "gmno")) && !h.startsWith("sira")) mapping.enNo = i;
     if (!mapping.inOut && inOutKeys.some(k => h.includes(k))) mapping.inOut = i;
   }
 
