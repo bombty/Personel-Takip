@@ -260,27 +260,25 @@ function buildPairsFromPunches(filteredPunches: Date[], scheduleBreakMinutes: nu
     const breakDuration = (filteredPunches[2].getTime() - filteredPunches[1].getTime()) / 60000;
     breakMinutesActual = Math.round(breakDuration);
 
+    const seg1 = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
+    const seg2 = (filteredPunches[3].getTime() - filteredPunches[2].getTime()) / 60000;
+
     if (breakDuration < 10) {
+      // Çok kısa ara → çift giriş şüphesi, tek blok olarak değerlendir
       warnings.push("Cift Giris Suphesi");
       pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[3]) });
       workMinutes = (filteredPunches[3].getTime() - filteredPunches[0].getTime()) / 60000;
       breakDeducted = false;
-    } else if (breakDuration > 120) {
-      warnings.push("Uzun Mola");
-      pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[1]) });
-      pairs.push({ in: formatTime(filteredPunches[2]), out: formatTime(filteredPunches[3]) });
-      const seg1 = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
-      const seg2 = (filteredPunches[3].getTime() - filteredPunches[2].getTime()) / 60000;
-      const totalBrut = seg1 + seg2 + breakDuration;
-      workMinutes = totalBrut - scheduleBreakMinutes;
-      breakDeducted = true;
     } else {
       pairs.push({ in: formatTime(filteredPunches[0]), out: formatTime(filteredPunches[1]) });
       pairs.push({ in: formatTime(filteredPunches[2]), out: formatTime(filteredPunches[3]) });
-      const seg1 = (filteredPunches[1].getTime() - filteredPunches[0].getTime()) / 60000;
-      const seg2 = (filteredPunches[3].getTime() - filteredPunches[2].getTime()) / 60000;
+      // Gerçek çalışma = sadece iki segment toplamı (mola hiç sayılmaz)
       workMinutes = seg1 + seg2;
       breakDeducted = true;
+      if (breakDuration > scheduleBreakMinutes) {
+        // Mola süresi izin verilen limiti aştı → fazla mola maaştan kesilir
+        warnings.push("Uygunsuz Mola");
+      }
     }
     return { pairs, workMinutes, breakDeducted, breakMinutesActual, warnings };
   }
@@ -612,13 +610,14 @@ export function processAttendanceData(
 
       for (const w of punchResult.warnings) {
         statuses.push(w);
-        if (w === "Gercek Eksik" || w === "Cift Giris Suphesi") {
+        if (w === "Gercek Eksik" || w === "Cift Giris Suphesi" || w === "Uygunsuz Mola" || w === "Mola Basi Eksik" || w === "Mola Donus Eksik") {
           issueCount++;
         }
       }
 
       if (punchCount === 1) {
-        statuses.push("Tek Okutma");
+        // Çıkış yapılmamış: o gün normal beklenen süre çalışmış varsay + şüphe işareti
+        statuses.push("Eksik Cikis Suphesi");
         issueCount++;
       } else if (punchCount === 3 && !classification) {
         statuses.push("Eksik Okutma");
@@ -642,7 +641,10 @@ export function processAttendanceData(
       }
 
       let netWork: number;
-      if (breakDeducted) {
+      if (punchCount === 1) {
+        // Çıkış yapılmamış: kurallar gereği beklenen net süre çalışmış sayılır
+        netWork = schedule.expectedNetWork;
+      } else if (breakDeducted) {
         netWork = dayWorkMinutes;
       } else if (autoDeductBreak && punchCount >= 2) {
         netWork = Math.max(0, dayWorkMinutes - schedule.breakMinutes);
