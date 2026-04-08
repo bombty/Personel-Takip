@@ -3,10 +3,13 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { processAttendanceData } from "./processor";
 import { analyzeGeneralReport, analyzeEmployeeReport } from "./ai-analyzer";
+import { smartProcessPunches, aiPayrollAnalysis } from "./services/ai-smart-processor";
+import { calculateSalary, buildSalaryInputFromSummary, calculateFMMinutes, calculateOvertimeDaysHoliday } from "./services/salary-calculator";
 import { parseScheduleFile } from "./schedule-parser";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import bcrypt from "bcryptjs";
+import OpenAI from "openai";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -1158,6 +1161,365 @@ export async function registerRoutes(
     try {
       await storage.clearAllData();
       res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ===== PAYROLL ROUTES =====
+
+  // GET /api/payroll/periods - Bordro dönemleri listele
+  app.get("/api/payroll/periods", requireAuth, async (req, res) => {
+    try {
+      const branchId = req.query.branchId ? parseInt(req.query.branchId as string) : undefined;
+      const periods = await storage.getPayrollPeriods(branchId);
+      res.json(periods);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/positions - Pozisyonları listele
+  app.get("/api/positions", requireAuth, async (_req, res) => {
+    try {
+      const positions = await storage.getPositions();
+      res.json(positions);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/payroll/process - Excel yükle, AI ile işle, maaş hesapla
+  app.post("/api/payroll/process", requireAuth, upload.single("file"), async (req, res) => {
+    try {
+      const branchId = parseInt(req.body.branchId);
+      if (!branchId) return res.status(400).json({ error: "Şube seçilmeli" });
+
+      const file = req.file;
+      if (!file) return res.status(400).json({ error: "Dosya yüklenmedi" });
+
+      // 1. Excel'i oku
+      const wb = XLSX.read(file.buffer, { type: "buffer", cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+
+      if (rawData.length < 2) return res.status(400).json({ error: "Dosya boş veya hatalı" });
+
+      // 2. Kolon algılama
+      const headers = rawData[0];
+      const colMap = detectColumns(headers);
+
+      if (colMap.enNo === undefined || colMap.dateTime === undefined) {
+        return res.status(400).json({ error: "Sicil No veya Tarih kolonu bulunamadı" });
+      }
+
+      // 3. Upload kaydı oluştur
+      const uploadRecord = await storage.createUpload({
+        fileName: file.originalname,
+        totalRecords: rawData.length - 1,
+        status: "processing",
+        branchId,
+      });
+
+      // 4. Kayıtları parse et
+      const records: any[] = [];
+      for (let i = 1; i < rawData.length; i++) {
+        const row = rawData[i];
+        if (!row || !row[colMap.enNo!] || !row[colMap.dateTime!]) continue;
+
+        const enNo = parseInt(String(row[colMap.enNo!]));
+        const name = colMap.name !== undefined ? String(row[colMap.name]) : `Personel-${enNo}`;
+        let dateTime: Date;
+
+        const rawDate = row[colMap.dateTime!];
+        if (rawDate instanceof Date) {
+          dateTime = rawDate;
+        } else {
+          dateTime = new Date(String(rawDate));
+        }
+
+        if (isNaN(enNo) || isNaN(dateTime.getTime())) continue;
+
+        records.push({
+          uploadId: uploadRecord.id,
+          enNo,
+          name: name.toLowerCase().trim(),
+          dateTime,
+          tmNo: colMap.tmNo !== undefined ? parseInt(String(row[colMap.tmNo])) || null : null,
+          gmNo: colMap.gmNo !== undefined ? parseInt(String(row[colMap.gmNo])) || null : null,
+          mode: colMap.mode !== undefined ? parseInt(String(row[colMap.mode])) || null : null,
+          inOut: colMap.inOut !== undefined ? String(row[colMap.inOut]) || null : null,
+          antipass: null,
+          proxyWork: null,
+        });
+      }
+
+      // 5. DB'ye kaydet
+      await storage.createAttendanceRecords(records);
+
+      // 6. AI Akıllı İşleme
+      const { corrections, patterns } = await smartProcessPunches(records, true);
+
+      // 7. AI düzeltmeleri DB'ye kaydet
+      for (const corr of corrections) {
+        await storage.createAiCorrection({
+          uploadId: uploadRecord.id,
+          enNo: corr.enNo,
+          date: corr.date,
+          originalPunches: JSON.stringify(corr.originalPunches),
+          correctedPunches: JSON.stringify(corr.correctedPunches),
+          correctionType: corr.correctionType,
+          confidence: corr.confidence,
+          reasoning: corr.reasoning,
+          approved: corr.confidence >= 70 ? true : null, // yüksek güvenli → otomatik onayla
+        });
+      }
+
+      // 8. Mevcut processor ile hesaplama
+      const settingsMap = await storage.getSettings();
+      const holidaysList = await storage.getHolidays();
+      const leavesList = await storage.getLeaves();
+      const allEmployees = await storage.getEmployees(branchId);
+      const empIdMap = new Map<number, number>();
+      for (const emp of allEmployees) {
+        empIdMap.set(emp.id, emp.enNo);
+      }
+      const assignments = await storage.getWeeklyAssignments();
+      const schedules = await storage.getWorkSchedules();
+
+      const summaries = processAttendanceData(
+        records, settingsMap, holidaysList, leavesList,
+        empIdMap, assignments, schedules, allEmployees
+      );
+
+      // 9. Ay bilgisini belirle (veriden)
+      const dates = records.map(r => new Date(r.dateTime));
+      const month = dates[0]?.getMonth() + 1 || new Date().getMonth() + 1;
+      const year = dates[0]?.getFullYear() || new Date().getFullYear();
+
+      // 10. Dönem oluştur veya güncelle
+      let period = await storage.getPayrollPeriodByMonth(branchId, year, month);
+      const trackingDays = parseInt(settingsMap.workDaysPerMonth || "30") ||
+        new Date(year, month, 0).getDate(); // ayın gün sayısı
+
+      if (!period) {
+        period = await storage.createPayrollPeriod({
+          branchId,
+          year,
+          month,
+          workDays: trackingDays,
+          salaryDivisor: 30,
+          status: "calculated",
+          uploadId: uploadRecord.id,
+        });
+      } else {
+        await storage.deletePayrollRecordsByPeriod(period.id);
+        await storage.updatePayrollPeriod(period.id, { status: "calculated", uploadId: uploadRecord.id });
+      }
+
+      // 11. Her personel için maaş hesapla
+      const positions = await storage.getPositions();
+      const payrollResults: any[] = [];
+
+      for (const summary of summaries) {
+        // Personel eşleştirme
+        const employee = allEmployees.find(e => e.enNo === summary.enNo);
+        let position = employee?.positionId
+          ? positions.find(p => p.id === employee.positionId)
+          : undefined;
+
+        // Pozisyon bulunamazsa isimden tahmin et
+        if (!position && employee?.position) {
+          position = positions.find(p =>
+            p.name.toLowerCase().includes(employee.position!.toLowerCase()) ||
+            employee.position!.toLowerCase().includes(p.name.toLowerCase())
+          );
+        }
+
+        // FM ve tatil mesai hesabı
+        const fmMinutes = calculateFMMinutes(summary.dailyReports);
+        const overtimeDaysHoliday = calculateOvertimeDaysHoliday(summary.dailyReports);
+
+        const salaryInput = buildSalaryInputFromSummary(
+          summary,
+          position,
+          trackingDays,
+          30
+        );
+        salaryInput.fmMinutes = fmMinutes;
+        salaryInput.overtimeDaysHoliday = overtimeDaysHoliday;
+
+        const salaryResult = calculateSalary(salaryInput);
+
+        // Personel düzeltmelerini bul
+        const empCorrections = corrections.filter(c => c.enNo === summary.enNo);
+
+        // Payroll record kaydet
+        const payrollRecord = await storage.createPayrollRecord({
+          periodId: period.id,
+          employeeId: employee?.id || 0,
+          positionName: position?.name || "Bilinmiyor",
+          workedDays: summary.workDays,
+          offDays: summary.offDays,
+          deficitDays: salaryResult.deficitDays,
+          overtimeDaysHoliday,
+          fmMinutes,
+          totalSalary: position?.totalSalary || 33000,
+          baseSalary: position?.baseSalary || 31000,
+          kasaPrim: position?.kasaPrim || 0,
+          performansPrim: position?.performansPrim || 0,
+          dailyRate: salaryResult.dailyRate,
+          dayDeduction: salaryResult.dayDeduction,
+          primDeduction: salaryResult.primDeduction,
+          overtimeAmount: salaryResult.overtimeAmount,
+          fmAmount: salaryResult.fmAmount,
+          netPayment: salaryResult.netPayment,
+          aiCorrections: empCorrections.length > 0 ? JSON.stringify(empCorrections) : null,
+          aiConfidence: empCorrections.length > 0
+            ? empCorrections.reduce((s, c) => s + c.confidence, 0) / empCorrections.length
+            : 100,
+          aiNotes: empCorrections.length > 0
+            ? empCorrections.map(c => `${c.date}: ${c.reasoning}`).join("\n")
+            : null,
+        });
+
+        payrollResults.push({
+          employeeName: summary.name,
+          enNo: summary.enNo,
+          position: position?.name || "Bilinmiyor",
+          workedDays: summary.workDays,
+          offDays: summary.offDays,
+          deficitDays: salaryResult.deficitDays,
+          overtimeDaysHoliday,
+          fmMinutes,
+          totalSalary: position?.totalSalary || 33000,
+          dayDeduction: salaryResult.dayDeduction,
+          primDeduction: salaryResult.primDeduction,
+          fmAmount: salaryResult.fmAmount,
+          overtimeAmount: salaryResult.overtimeAmount,
+          mealAmount: 0,
+          netPayment: salaryResult.netPayment,
+          aiNotes: payrollRecord.aiNotes,
+          aiConfidence: payrollRecord.aiConfidence,
+          corrections: empCorrections.map(c => ({
+            date: c.date,
+            type: c.correctionType,
+            confidence: c.confidence,
+            reasoning: c.reasoning,
+          })),
+        });
+      }
+
+      // 12. AI genel analiz
+      const branch = await storage.getBranchById(branchId);
+      const aiAnalysis = await aiPayrollAnalysis(
+        payrollResults,
+        `${month}/${year}`,
+        branch?.name || "Şube"
+      );
+
+      // Döneme AI analiz kaydet
+      await storage.updatePayrollPeriod(period.id, { aiAnalysis });
+
+      // Upload durumunu güncelle
+      await storage.createUpload({
+        fileName: file.originalname,
+        totalRecords: records.length,
+        totalEmployees: summaries.length,
+        status: "completed",
+        branchId,
+      });
+
+      res.json({
+        periodId: period.id,
+        records: payrollResults,
+        aiAnalysis,
+        totalEmployees: summaries.length,
+        totalCorrections: corrections.length,
+      });
+
+    } catch (err: any) {
+      console.error("Payroll processing error:", err);
+      res.status(500).json({ error: err.message || "İşleme hatası" });
+    }
+  });
+
+  // POST /api/payroll/chat - AI ile sohbet
+  app.post("/api/payroll/chat", requireAuth, async (req, res) => {
+    try {
+      const { question, periodId, branchId } = req.body;
+      if (!question) return res.status(400).json({ error: "Soru gerekli" });
+
+      // Dönem verilerini getir
+      let context = "";
+      if (periodId) {
+        const records = await storage.getPayrollRecords(periodId);
+        const period = await storage.getPayrollPeriodById(periodId);
+        const branch = branchId ? await storage.getBranchById(branchId) : null;
+
+        context = `Şube: ${branch?.name || "Bilinmiyor"}\n`;
+        context += `Dönem: ${period?.month}/${period?.year}\n\n`;
+        context += `PERSONEL BORDRO VERİLERİ:\n`;
+
+        for (const rec of records) {
+          context += `- ${rec.positionName || "?"} | `;
+          context += `Çalışılan: ${rec.workedDays}g, Off: ${rec.offDays}g, Eksik: ${rec.deficitDays}g, `;
+          context += `FM: ${rec.fmMinutes}dk, Mesai Tatil: ${rec.overtimeDaysHoliday}g, `;
+          context += `Brüt: ${rec.totalSalary}₺, Gün Kesinti: ${Math.round(rec.dayDeduction || 0)}₺, `;
+          context += `Net: ${Math.round(rec.netPayment || 0)}₺`;
+          if (rec.aiNotes) context += `\n  AI Notlar: ${rec.aiNotes}`;
+          context += `\n`;
+        }
+
+        if (period?.aiAnalysis) {
+          context += `\nAI GENEL ANALİZ:\n${period.aiAnalysis}\n`;
+        }
+      }
+
+      const openai = new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      });
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `Sen DOSPRESSO cafe zinciri personel puantaj asistanısın. Kullanıcı sana bordro, puantaj, 
+çalışma saatleri, eksik günler, fazla mesai hakkında sorular soracak. 
+Kısa, net ve Türkçe cevap ver. Rakamları kullan.
+
+Kurallar:
+- Full-time haftalık 45 saat (6 gün × 7.5 saat)
+- Günlük ücret = Toplam Maaş ÷ 30
+- Eksik gün = Devam takip günü - Çalışılan gün - Off gün
+- Birkaç günden fazla eksik → rapor, yıllık izin veya ücretsiz izin olabilir
+- FM (fazla mesai) = günlük 8 saatten fazla çalışma (30dk altı sayılmaz)
+
+${context ? "MEVCUT VERİ:\n" + context : "Henüz veri yüklenmedi."}`,
+          },
+          { role: "user", content: question },
+        ],
+        max_tokens: 1000,
+        temperature: 0.3,
+      });
+
+      const answer = response.choices[0]?.message?.content || "Yanıt oluşturulamadı.";
+      res.json({ answer });
+
+    } catch (err: any) {
+      console.error("Chat error:", err);
+      res.status(500).json({ error: "AI yanıt hatası" });
+    }
+  });
+
+  // GET /api/payroll/records/:periodId - Dönem kayıtlarını getir
+  app.get("/api/payroll/records/:periodId", requireAuth, async (req, res) => {
+    try {
+      const periodId = parseInt(req.params.periodId);
+      const records = await storage.getPayrollRecords(periodId);
+      res.json(records);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
