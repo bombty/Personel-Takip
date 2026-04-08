@@ -14,6 +14,12 @@ import {
   workSchedules, type WorkSchedule, type InsertWorkSchedule,
   weeklyAssignments, type WeeklyAssignment, type InsertWeeklyAssignment,
   reportPeriods, type ReportPeriod, type InsertReportPeriod,
+  positions, type Position, type InsertPosition,
+  employeeAliases, type EmployeeAlias, type InsertEmployeeAlias,
+  payrollPeriods, type PayrollPeriod, type InsertPayrollPeriod,
+  payrollRecords, type PayrollRecord, type InsertPayrollRecord,
+  payrollAdjustments, type PayrollAdjustment, type InsertPayrollAdjustment,
+  aiPunchCorrections, type AiPunchCorrection, type InsertAiPunchCorrection,
   defaultSettings,
 } from "@shared/schema";
 
@@ -80,6 +86,44 @@ export interface IStorage {
 
   clearAllData(): Promise<void>;
   initDefaults(): Promise<void>;
+
+  // Positions
+  getPositions(): Promise<Position[]>;
+  getPositionById(id: number): Promise<Position | undefined>;
+  createPosition(position: InsertPosition): Promise<Position>;
+  updatePosition(id: number, data: Partial<InsertPosition>): Promise<Position | undefined>;
+
+  // Employee Aliases
+  getAliasesByEmployee(employeeId: number): Promise<EmployeeAlias[]>;
+  getAllAliases(): Promise<EmployeeAlias[]>;
+  createAlias(alias: InsertEmployeeAlias): Promise<EmployeeAlias>;
+  deleteAlias(id: number): Promise<void>;
+  findEmployeeByAlias(aliasName: string): Promise<Employee | undefined>;
+
+  // Payroll Periods
+  getPayrollPeriods(branchId?: number): Promise<PayrollPeriod[]>;
+  getPayrollPeriodById(id: number): Promise<PayrollPeriod | undefined>;
+  getPayrollPeriodByMonth(branchId: number, year: number, month: number): Promise<PayrollPeriod | undefined>;
+  createPayrollPeriod(period: InsertPayrollPeriod): Promise<PayrollPeriod>;
+  updatePayrollPeriod(id: number, data: Partial<InsertPayrollPeriod>): Promise<PayrollPeriod | undefined>;
+
+  // Payroll Records
+  getPayrollRecords(periodId: number): Promise<PayrollRecord[]>;
+  getPayrollRecordById(id: number): Promise<PayrollRecord | undefined>;
+  createPayrollRecord(record: InsertPayrollRecord): Promise<PayrollRecord>;
+  updatePayrollRecord(id: number, data: Partial<InsertPayrollRecord>): Promise<PayrollRecord | undefined>;
+  deletePayrollRecordsByPeriod(periodId: number): Promise<void>;
+
+  // Payroll Adjustments
+  getAdjustmentsByRecord(payrollRecordId: number): Promise<PayrollAdjustment[]>;
+  createAdjustment(adjustment: InsertPayrollAdjustment): Promise<PayrollAdjustment>;
+
+  // AI Punch Corrections
+  getAiCorrections(uploadId: number): Promise<AiPunchCorrection[]>;
+  getAiCorrectionsByEmployee(uploadId: number, enNo: number): Promise<AiPunchCorrection[]>;
+  createAiCorrection(correction: InsertAiPunchCorrection): Promise<AiPunchCorrection>;
+  updateAiCorrection(id: number, data: Partial<InsertAiPunchCorrection>): Promise<AiPunchCorrection | undefined>;
+  getPendingCorrections(uploadId: number): Promise<AiPunchCorrection[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -338,11 +382,167 @@ export class DatabaseStorage implements IStorage {
   }
 
   async clearAllData(): Promise<void> {
+    await db.delete(payrollAdjustments);
+    await db.delete(payrollRecords);
+    await db.delete(payrollPeriods);
+    await db.delete(aiPunchCorrections);
     await db.delete(attendanceRecords);
     await db.delete(uploads);
     await db.delete(leaves);
     await db.delete(weeklyAssignments);
+    await db.delete(employeeAliases);
     await db.delete(employees);
+  }
+
+  // ===== POSITIONS =====
+  async getPositions(): Promise<Position[]> {
+    return db.select().from(positions).where(eq(positions.active, true));
+  }
+
+  async getPositionById(id: number): Promise<Position | undefined> {
+    const result = await db.select().from(positions).where(eq(positions.id, id));
+    return result[0];
+  }
+
+  async createPosition(position: InsertPosition): Promise<Position> {
+    const result = await db.insert(positions).values(position).returning();
+    return result[0];
+  }
+
+  async updatePosition(id: number, data: Partial<InsertPosition>): Promise<Position | undefined> {
+    const result = await db.update(positions).set(data).where(eq(positions.id, id)).returning();
+    return result[0];
+  }
+
+  // ===== EMPLOYEE ALIASES =====
+  async getAliasesByEmployee(employeeId: number): Promise<EmployeeAlias[]> {
+    return db.select().from(employeeAliases).where(eq(employeeAliases.employeeId, employeeId));
+  }
+
+  async getAllAliases(): Promise<EmployeeAlias[]> {
+    return db.select().from(employeeAliases);
+  }
+
+  async createAlias(alias: InsertEmployeeAlias): Promise<EmployeeAlias> {
+    const result = await db.insert(employeeAliases).values(alias).returning();
+    return result[0];
+  }
+
+  async deleteAlias(id: number): Promise<void> {
+    await db.delete(employeeAliases).where(eq(employeeAliases.id, id));
+  }
+
+  async findEmployeeByAlias(aliasName: string): Promise<Employee | undefined> {
+    const normalizedAlias = aliasName.toLowerCase().trim();
+    const aliases = await db.select().from(employeeAliases);
+    const match = aliases.find(a => a.aliasName.toLowerCase().trim() === normalizedAlias);
+    if (match) {
+      return this.getEmployeeById(match.employeeId);
+    }
+    // Fallback: employees tablosunda name ile ara
+    const allEmployees = await db.select().from(employees).where(eq(employees.active, true));
+    return allEmployees.find(e =>
+      e.name.toLowerCase().trim() === normalizedAlias ||
+      (e.fullName && e.fullName.toLowerCase().trim().includes(normalizedAlias))
+    );
+  }
+
+  // ===== PAYROLL PERIODS =====
+  async getPayrollPeriods(branchId?: number): Promise<PayrollPeriod[]> {
+    if (branchId) {
+      return db.select().from(payrollPeriods).where(eq(payrollPeriods.branchId, branchId)).orderBy(desc(payrollPeriods.createdAt));
+    }
+    return db.select().from(payrollPeriods).orderBy(desc(payrollPeriods.createdAt));
+  }
+
+  async getPayrollPeriodById(id: number): Promise<PayrollPeriod | undefined> {
+    const result = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, id));
+    return result[0];
+  }
+
+  async getPayrollPeriodByMonth(branchId: number, year: number, month: number): Promise<PayrollPeriod | undefined> {
+    const result = await db.select().from(payrollPeriods).where(
+      and(eq(payrollPeriods.branchId, branchId), eq(payrollPeriods.year, year), eq(payrollPeriods.month, month))
+    );
+    return result[0];
+  }
+
+  async createPayrollPeriod(period: InsertPayrollPeriod): Promise<PayrollPeriod> {
+    const result = await db.insert(payrollPeriods).values(period).returning();
+    return result[0];
+  }
+
+  async updatePayrollPeriod(id: number, data: Partial<InsertPayrollPeriod>): Promise<PayrollPeriod | undefined> {
+    const result = await db.update(payrollPeriods).set(data).where(eq(payrollPeriods.id, id)).returning();
+    return result[0];
+  }
+
+  // ===== PAYROLL RECORDS =====
+  async getPayrollRecords(periodId: number): Promise<PayrollRecord[]> {
+    return db.select().from(payrollRecords).where(eq(payrollRecords.periodId, periodId));
+  }
+
+  async getPayrollRecordById(id: number): Promise<PayrollRecord | undefined> {
+    const result = await db.select().from(payrollRecords).where(eq(payrollRecords.id, id));
+    return result[0];
+  }
+
+  async createPayrollRecord(record: InsertPayrollRecord): Promise<PayrollRecord> {
+    const result = await db.insert(payrollRecords).values(record).returning();
+    return result[0];
+  }
+
+  async updatePayrollRecord(id: number, data: Partial<InsertPayrollRecord>): Promise<PayrollRecord | undefined> {
+    const result = await db.update(payrollRecords).set(data).where(eq(payrollRecords.id, id)).returning();
+    return result[0];
+  }
+
+  async deletePayrollRecordsByPeriod(periodId: number): Promise<void> {
+    // Önce adjustments sil
+    const records = await this.getPayrollRecords(periodId);
+    for (const rec of records) {
+      await db.delete(payrollAdjustments).where(eq(payrollAdjustments.payrollRecordId, rec.id));
+    }
+    await db.delete(payrollRecords).where(eq(payrollRecords.periodId, periodId));
+  }
+
+  // ===== PAYROLL ADJUSTMENTS =====
+  async getAdjustmentsByRecord(payrollRecordId: number): Promise<PayrollAdjustment[]> {
+    return db.select().from(payrollAdjustments)
+      .where(eq(payrollAdjustments.payrollRecordId, payrollRecordId))
+      .orderBy(desc(payrollAdjustments.adjustedAt));
+  }
+
+  async createAdjustment(adjustment: InsertPayrollAdjustment): Promise<PayrollAdjustment> {
+    const result = await db.insert(payrollAdjustments).values(adjustment).returning();
+    return result[0];
+  }
+
+  // ===== AI PUNCH CORRECTIONS =====
+  async getAiCorrections(uploadId: number): Promise<AiPunchCorrection[]> {
+    return db.select().from(aiPunchCorrections).where(eq(aiPunchCorrections.uploadId, uploadId));
+  }
+
+  async getAiCorrectionsByEmployee(uploadId: number, enNo: number): Promise<AiPunchCorrection[]> {
+    return db.select().from(aiPunchCorrections).where(
+      and(eq(aiPunchCorrections.uploadId, uploadId), eq(aiPunchCorrections.enNo, enNo))
+    );
+  }
+
+  async createAiCorrection(correction: InsertAiPunchCorrection): Promise<AiPunchCorrection> {
+    const result = await db.insert(aiPunchCorrections).values(correction).returning();
+    return result[0];
+  }
+
+  async updateAiCorrection(id: number, data: Partial<InsertAiPunchCorrection>): Promise<AiPunchCorrection | undefined> {
+    const result = await db.update(aiPunchCorrections).set(data).where(eq(aiPunchCorrections.id, id)).returning();
+    return result[0];
+  }
+
+  async getPendingCorrections(uploadId: number): Promise<AiPunchCorrection[]> {
+    return db.select().from(aiPunchCorrections).where(
+      and(eq(aiPunchCorrections.uploadId, uploadId), sql`${aiPunchCorrections.approved} IS NULL`)
+    );
   }
 
   async initDefaults(): Promise<void> {
@@ -429,6 +629,21 @@ export class DatabaseStorage implements IStorage {
       ];
       for (const h of turkishHolidays) {
         await db.insert(holidays).values(h);
+      }
+    }
+
+    // Pozisyon seed data
+    const existingPositions = await db.select().from(positions);
+    if (existingPositions.length === 0) {
+      const positionData: InsertPosition[] = [
+        { name: "Stajyer", baseSalary: 31000, totalSalary: 33000, kasaPrim: 0, performansPrim: 2000, description: "Taban 31K + Prim 2K" },
+        { name: "Bar Buddy", baseSalary: 31000, totalSalary: 36000, kasaPrim: 3500, performansPrim: 1500, description: "Taban 31K + Prim 5K" },
+        { name: "Barista", baseSalary: 31000, totalSalary: 41000, kasaPrim: 3500, performansPrim: 6500, description: "Taban 31K + Prim 10K" },
+        { name: "Supervisor Buddy", baseSalary: 31000, totalSalary: 45000, kasaPrim: 3500, performansPrim: 10500, description: "Taban 31K + Prim 14K" },
+        { name: "Supervisor", baseSalary: 31000, totalSalary: 49000, kasaPrim: 3500, performansPrim: 14500, description: "Taban 31K + Prim 18K" },
+      ];
+      for (const p of positionData) {
+        await db.insert(positions).values(p);
       }
     }
   }

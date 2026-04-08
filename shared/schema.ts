@@ -39,6 +39,8 @@ export const employees = pgTable("employees", {
   weeklyHours: integer("weekly_hours").default(45),
   branchId: integer("branch_id"),
   annualLeaveQuota: integer("annual_leave_quota").default(14),
+  fullName: text("full_name"), // AD SOYAD (maaş tablosundaki isim)
+  positionId: integer("position_id"), // positions tablosuna FK
 });
 
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
@@ -174,6 +176,131 @@ export const reportPeriods = pgTable("report_periods", {
 export const insertReportPeriodSchema = createInsertSchema(reportPeriods).omit({ id: true, createdAt: true, finalizedAt: true });
 export type InsertReportPeriod = z.infer<typeof insertReportPeriodSchema>;
 export type ReportPeriod = typeof reportPeriods.$inferSelect;
+
+// ===== YENİ TABLOLAR (Sprint 1) =====
+
+export const positions = pgTable("positions", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  baseSalary: integer("base_salary").notNull(),
+  totalSalary: integer("total_salary").notNull(),
+  kasaPrim: integer("kasa_prim").default(0),
+  performansPrim: integer("performans_prim").default(0),
+  description: text("description"),
+  active: boolean("active").default(true),
+});
+
+export const insertPositionSchema = createInsertSchema(positions).omit({ id: true });
+export type InsertPosition = z.infer<typeof insertPositionSchema>;
+export type Position = typeof positions.$inferSelect;
+
+export const employeeAliases = pgTable("employee_aliases", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull(),
+  aliasName: text("alias_name").notNull(),
+  source: text("source").default("manual"), // manual | pdks | ai
+});
+
+export const insertEmployeeAliasSchema = createInsertSchema(employeeAliases).omit({ id: true });
+export type InsertEmployeeAlias = z.infer<typeof insertEmployeeAliasSchema>;
+export type EmployeeAlias = typeof employeeAliases.$inferSelect;
+
+export const payrollPeriods = pgTable("payroll_periods", {
+  id: serial("id").primaryKey(),
+  branchId: integer("branch_id").notNull(),
+  year: integer("year").notNull(),
+  month: integer("month").notNull(),
+  workDays: integer("work_days").notNull(),
+  salaryDivisor: integer("salary_divisor").default(30),
+  status: text("status").default("draft"), // draft | calculated | reviewed | approved | locked
+  uploadId: integer("upload_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  calculatedAt: timestamp("calculated_at"),
+  approvedAt: timestamp("approved_at"),
+  approvedBy: integer("approved_by"),
+  aiAnalysis: text("ai_analysis"),
+});
+
+export const insertPayrollPeriodSchema = createInsertSchema(payrollPeriods).omit({ id: true, createdAt: true });
+export type InsertPayrollPeriod = z.infer<typeof insertPayrollPeriodSchema>;
+export type PayrollPeriod = typeof payrollPeriods.$inferSelect;
+
+export const payrollRecords = pgTable("payroll_records", {
+  id: serial("id").primaryKey(),
+  periodId: integer("period_id").notNull(),
+  employeeId: integer("employee_id").notNull(),
+  positionName: text("position_name"),
+  // 🔵 Otomatik (PDKS'den)
+  workedDays: integer("worked_days").default(0),
+  offDays: integer("off_days").default(0),
+  deficitDays: integer("deficit_days").default(0),
+  overtimeDaysHoliday: real("overtime_days_holiday").default(0), // 0.5 gün destekli
+  fmMinutes: integer("fm_minutes").default(0), // fazla mesai dakika
+  // 🟡 Manuel
+  unpaidLeaveDays: integer("unpaid_leave_days").default(0),
+  sickLeaveDays: integer("sick_leave_days").default(0),
+  mealAllowance: integer("meal_allowance").default(0),
+  // Hesaplanan
+  totalSalary: integer("total_salary").default(0),
+  baseSalary: integer("base_salary").default(0),
+  kasaPrim: integer("kasa_prim").default(0),
+  performansPrim: integer("performans_prim").default(0),
+  dailyRate: real("daily_rate").default(0),
+  dayDeduction: real("day_deduction").default(0),
+  primDeduction: real("prim_deduction").default(0),
+  overtimeAmount: real("overtime_amount").default(0),
+  fmAmount: real("fm_amount").default(0),
+  mealAmount: integer("meal_amount").default(0),
+  netPayment: real("net_payment").default(0),
+  // AI
+  aiCorrections: text("ai_corrections"), // JSON: AI'ın yaptığı düzeltmeler
+  aiConfidence: real("ai_confidence"), // 0-100 güven skoru
+  aiNotes: text("ai_notes"),
+  // Meta
+  manuallyAdjusted: boolean("manually_adjusted").default(false),
+  notes: text("notes"),
+});
+
+export const insertPayrollRecordSchema = createInsertSchema(payrollRecords).omit({ id: true });
+export type InsertPayrollRecord = z.infer<typeof insertPayrollRecordSchema>;
+export type PayrollRecord = typeof payrollRecords.$inferSelect;
+
+export const payrollAdjustments = pgTable("payroll_adjustments", {
+  id: serial("id").primaryKey(),
+  payrollRecordId: integer("payroll_record_id").notNull(),
+  fieldName: text("field_name").notNull(),
+  oldValue: text("old_value"),
+  newValue: text("new_value"),
+  adjustedBy: integer("adjusted_by"),
+  adjustedAt: timestamp("adjusted_at").defaultNow(),
+  reason: text("reason"),
+});
+
+export const insertPayrollAdjustmentSchema = createInsertSchema(payrollAdjustments).omit({ id: true, adjustedAt: true });
+export type InsertPayrollAdjustment = z.infer<typeof insertPayrollAdjustmentSchema>;
+export type PayrollAdjustment = typeof payrollAdjustments.$inferSelect;
+
+// AI okutma düzeltme kayıtları
+export const aiPunchCorrections = pgTable("ai_punch_corrections", {
+  id: serial("id").primaryKey(),
+  uploadId: integer("upload_id").notNull(),
+  employeeId: integer("employee_id"),
+  enNo: integer("en_no").notNull(),
+  date: date("date").notNull(),
+  originalPunches: text("original_punches").notNull(), // JSON array
+  correctedPunches: text("corrected_punches").notNull(), // JSON array
+  correctionType: text("correction_type").notNull(), // missing_exit | missing_entry | duplicate | anomaly
+  confidence: real("confidence").notNull(), // 0-100
+  reasoning: text("reasoning").notNull(), // AI'ın açıklaması
+  approved: boolean("approved"), // null=bekliyor, true=onaylı, false=reddedildi
+  approvedBy: integer("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAiPunchCorrectionSchema = createInsertSchema(aiPunchCorrections).omit({ id: true, createdAt: true });
+export type InsertAiPunchCorrection = z.infer<typeof insertAiPunchCorrectionSchema>;
+export type AiPunchCorrection = typeof aiPunchCorrections.$inferSelect;
 
 export const defaultSettings: Record<string, string> = {
   workStartTime: "08:00",
