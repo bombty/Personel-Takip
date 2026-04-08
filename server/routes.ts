@@ -289,6 +289,18 @@ export async function registerRoutes(
     res.json(all.filter(b => b.active));
   });
 
+  app.get("/api/branches/:id", requireAuth, async (req, res, next) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return next(); // "stats" gibi string path'leri atla
+    try {
+      const branch = await storage.getBranchById(id);
+      if (!branch) return res.status(404).json({ error: "Şube bulunamadı" });
+      res.json(branch);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/branches", requireRole("yonetim"), async (req, res) => {
     const { name } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: "Sube adi zorunlu" });

@@ -646,6 +646,63 @@ export class DatabaseStorage implements IStorage {
         await db.insert(positions).values(p);
       }
     }
+
+    // Lara şubesi personel seed data
+    const existingEmployees = await db.select().from(employees);
+    if (existingEmployees.length === 0) {
+      // Pozisyonları al
+      const positionsList = await db.select().from(positions);
+      const posMap = new Map<string, number>();
+      for (const p of positionsList) posMap.set(p.name, p.id);
+
+      // Lara şubesini bul
+      const branchList = await db.select().from(branches);
+      const laraBranch = branchList.find(b => b.name.toLowerCase().includes("lara"));
+      const laraId = laraBranch?.id || 1;
+
+      // PDKS'deki enNo → isim → tam isim → pozisyon eşleştirmesi
+      const laraPersonel = [
+        { enNo: 32, name: "deniz", fullName: "DENİZ HALİL ÇOLAK", position: "Supervisor Buddy" },
+        { enNo: 22, name: "eren", fullName: "EREN DEMİR", position: "Barista" },
+        { enNo: 6, name: "veysel", fullName: "VEYSEL HÜSEYİNOĞLU", position: "Barista" },
+        { enNo: 5, name: "jennifer", fullName: "DİLARA JENNEFER ELMAS", position: "Barista" },
+        { enNo: 9, name: "berkan", fullName: "BERKAN BOZDAĞ", position: "Bar Buddy" },
+        { enNo: 55, name: "efe", fullName: "EFE YÜKSEL", position: "Bar Buddy" },
+        { enNo: 13, name: "gul", fullName: "GÜL DEMİR", position: "Bar Buddy" },
+        { enNo: 15, name: "yagiz", fullName: "YAĞIZ TÖRER", position: "Stajyer" },
+        { enNo: 4, name: "aybuke", fullName: "AYBÜKE", position: "Stajyer" },
+        { enNo: 1, name: "berk", fullName: "BERK", position: "Stajyer" },
+        { enNo: 12, name: "burcu", fullName: "BURCU", position: "Stajyer" },
+        { enNo: 17, name: "goktug", fullName: "GÖKTUĞ", position: "Stajyer" },
+        { enNo: 7, name: "jasmin", fullName: "JASMİN", position: "Stajyer" },
+        { enNo: 3, name: "seref", fullName: "ŞEREF", position: "Stajyer" },
+        { enNo: 10, name: "tugba", fullName: "TUĞBA", position: "Stajyer" },
+      ];
+
+      for (const p of laraPersonel) {
+        const posId = posMap.get(p.position);
+        const emp = await db.insert(employees).values({
+          enNo: p.enNo,
+          name: p.name,
+          fullName: p.fullName,
+          position: p.position,
+          positionId: posId || null,
+          branchId: laraId,
+          active: true,
+          employmentType: "full_time",
+          weeklyHours: 45,
+        }).returning();
+
+        // PDKS alias kaydet
+        if (emp[0]) {
+          await db.insert(employeeAliases).values({
+            employeeId: emp[0].id,
+            aliasName: p.name,
+            source: "pdks",
+          });
+        }
+      }
+    }
   }
 }
 
