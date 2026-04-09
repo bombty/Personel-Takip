@@ -792,6 +792,80 @@ export class DatabaseStorage implements IStorage {
           });
         }
       }
+
+      // Işıklar şubesini bul
+      const isikBranch = branchList.find(b => b.name.toLowerCase().includes("isik"));
+      const isikId = isikBranch?.id || 2;
+
+      const isikPersonel = [
+        { enNo: 50014, name: "basri", fullName: "BASRİ ŞEN", position: "Supervisor Buddy" },
+        { enNo: 13, name: "kemal", fullName: "KEMAL HÜSEYİNOĞLU", position: "Barista" },
+        { enNo: 100059, name: "cihan", fullName: "CİHAN KOLAKAN", position: "Barista" },
+        { enNo: 19, name: "ates", fullName: "ATEŞ GÜNEY YILMAZ", position: "Barista" },
+        { enNo: 39, name: "efe", fullName: "EFE", position: "Bar Buddy" },
+        { enNo: 40, name: "ahmet", fullName: "AHMET", position: "Bar Buddy" },
+        { enNo: 43, name: "suleyman", fullName: "SÜLEYMAN UYGUN", position: "Supervisor Buddy" },
+        { enNo: 45, name: "ismail", fullName: "İSMAİL SİVRİ", position: "Stajyer" },
+        { enNo: 46, name: "hulya", fullName: "HÜLYA TÜZÜN", position: "Crosscheck" },
+        { enNo: 50022, name: "ece", fullName: "ECE ÖZ", position: "Trainer Coach" },
+        { enNo: 44, name: "muzaffer", fullName: "MUZAFFER İLKER", position: "Bar Buddy" },
+      ];
+
+      for (const p of isikPersonel) {
+        const posId = posMap.get(p.position) || posMap.get("Bar Buddy");
+        const emp = await db.insert(employees).values({
+          enNo: p.enNo,
+          name: p.name,
+          fullName: p.fullName,
+          position: p.position,
+          positionId: posId || null,
+          branchId: isikId,
+          active: true,
+          employmentType: "full_time",
+          weeklyHours: 45,
+        }).returning();
+
+        if (emp[0]) {
+          await db.insert(employeeAliases).values({
+            employeeId: emp[0].id,
+            aliasName: p.name,
+            source: "pdks",
+          });
+        }
+      }
+    }
+
+    // Departman seed data
+    const existingDepts = await db.select().from(departments);
+    if (existingDepts.length === 0) {
+      const branchList = await db.select().from(branches);
+      const isikBranch = branchList.find(b => b.name.toLowerCase().includes("isik"));
+      if (isikBranch) {
+        await db.insert(departments).values({ name: "IŞIKLAR", branchId: isikBranch.id });
+      }
+      const laraBranch = branchList.find(b => b.name.toLowerCase().includes("lara"));
+      if (laraBranch) {
+        await db.insert(departments).values({ name: "LARA", branchId: laraBranch.id });
+      }
+      await db.insert(departments).values({ name: "OFİS", branchId: null });
+      await db.insert(departments).values({ name: "İMALATHANE", branchId: null });
+    }
+
+    // Prim kuralları seed data
+    const existingPrimRules = await db.select().from(primRules);
+    if (existingPrimRules.length === 0) {
+      const rules = [
+        { ruleType: "ucretsiz_izin", dayCount: 1, primPercentage: 25, description: "1 gün Üİ → %25 prim kesinti" },
+        { ruleType: "ucretsiz_izin", dayCount: 2, primPercentage: 50, description: "2 gün Üİ → %50 prim kesinti" },
+        { ruleType: "ucretsiz_izin", dayCount: 3, primPercentage: 100, description: "3+ gün Üİ → %100 prim kesinti" },
+        { ruleType: "rapor", dayCount: 1, primPercentage: 0, description: "1 gün rapor → kesinti yok" },
+        { ruleType: "rapor", dayCount: 2, primPercentage: 25, description: "2 gün rapor → %25 prim kesinti" },
+        { ruleType: "rapor", dayCount: 3, primPercentage: 50, description: "3 gün rapor → %50 prim kesinti" },
+        { ruleType: "rapor", dayCount: 4, primPercentage: 100, description: "4+ gün rapor → %100 prim kesinti" },
+      ];
+      for (const r of rules) {
+        await db.insert(primRules).values(r);
+      }
     }
   }
 }
