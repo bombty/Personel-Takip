@@ -41,6 +41,7 @@ export const employees = pgTable("employees", {
   annualLeaveQuota: integer("annual_leave_quota").default(14),
   fullName: text("full_name"), // AD SOYAD (maaş tablosundaki isim)
   positionId: integer("position_id"), // positions tablosuna FK
+  departmentId: integer("department_id"), // departments tablosuna FK
 });
 
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
@@ -304,6 +305,81 @@ export const aiPunchCorrections = pgTable("ai_punch_corrections", {
 export const insertAiPunchCorrectionSchema = createInsertSchema(aiPunchCorrections).omit({ id: true, createdAt: true });
 export type InsertAiPunchCorrection = z.infer<typeof insertAiPunchCorrectionSchema>;
 export type AiPunchCorrection = typeof aiPunchCorrections.$inferSelect;
+
+// ===== YENİ TABLOLAR (Sprint 1 v2 — Gün-gün Puantaj) =====
+
+export const departments = pgTable("departments", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  branchId: integer("branch_id"),
+  active: boolean("active").default(true),
+});
+
+export const insertDepartmentSchema = createInsertSchema(departments).omit({ id: true });
+export type InsertDepartment = z.infer<typeof insertDepartmentSchema>;
+export type Department = typeof departments.$inferSelect;
+
+export const dailyAttendance = pgTable("daily_attendance", {
+  id: serial("id").primaryKey(),
+  periodId: integer("period_id").notNull(),
+  employeeId: integer("employee_id").notNull(),
+  day: integer("day").notNull(), // 1-31
+  status: text("status").default(""), // 1, 0, 0.5, Yi, R, Ui, D, G, Mi, RT, (boş=off)
+  fmMinutes: integer("fm_minutes").default(0), // +pozitif veya -negatif
+  source: text("source").default("pdks"), // pdks, manual, ai
+  shiftStart: text("shift_start"), // "08:00"
+  shiftEnd: text("shift_end"), // "16:30"
+  actualStart: text("actual_start"), // gerçek giriş
+  actualEnd: text("actual_end"), // gerçek çıkış
+  breakMinutes: integer("break_minutes"), // gerçek mola
+  notes: text("notes"),
+});
+
+export const insertDailyAttendanceSchema = createInsertSchema(dailyAttendance).omit({ id: true });
+export type InsertDailyAttendance = z.infer<typeof insertDailyAttendanceSchema>;
+export type DailyAttendance = typeof dailyAttendance.$inferSelect;
+
+export const primRules = pgTable("prim_rules", {
+  id: serial("id").primaryKey(),
+  ruleType: text("rule_type").notNull(), // ucretsiz_izin, rapor, devamsiz
+  dayCount: integer("day_count").notNull(), // 1, 2, 3, 4
+  primPercentage: integer("prim_percentage").notNull(), // 0, 25, 50, 100
+  description: text("description"),
+  active: boolean("active").default(true),
+});
+
+export const insertPrimRuleSchema = createInsertSchema(primRules).omit({ id: true });
+export type InsertPrimRule = z.infer<typeof insertPrimRuleSchema>;
+export type PrimRule = typeof primRules.$inferSelect;
+
+// Devamsızlık kodları
+export const ATTENDANCE_CODES = {
+  WORKED: "1",
+  HALF_DAY: "0.5",
+  ABSENT: "0",
+  OFF: "",
+  ANNUAL_LEAVE: "Yi",
+  SICK_LEAVE: "R",
+  UNPAID_LEAVE: "Ui",
+  UNAUTHORIZED: "D",
+  ASSIGNED: "G",
+  EXCUSE_LEAVE: "Mi",
+  PUBLIC_HOLIDAY: "RT",
+} as const;
+
+export const ATTENDANCE_LABELS: Record<string, string> = {
+  "1": "Çalıştı",
+  "0.5": "Yarım Gün",
+  "0": "Gelmedi",
+  "": "Off",
+  "Yi": "Yıllık İzin",
+  "R": "Rapor",
+  "Ui": "Ücretsiz İzin",
+  "D": "Devamsız",
+  "G": "Görevli",
+  "Mi": "Mazeret İzni",
+  "RT": "Resmi Tatil",
+};
 
 export const defaultSettings: Record<string, string> = {
   workStartTime: "08:00",

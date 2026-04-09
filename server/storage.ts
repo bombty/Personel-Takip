@@ -20,6 +20,9 @@ import {
   payrollRecords, type PayrollRecord, type InsertPayrollRecord,
   payrollAdjustments, type PayrollAdjustment, type InsertPayrollAdjustment,
   aiPunchCorrections, type AiPunchCorrection, type InsertAiPunchCorrection,
+  departments, type Department, type InsertDepartment,
+  dailyAttendance, type DailyAttendance, type InsertDailyAttendance,
+  primRules, type PrimRule, type InsertPrimRule,
   defaultSettings,
 } from "@shared/schema";
 
@@ -125,6 +128,21 @@ export interface IStorage {
   createAiCorrection(correction: InsertAiPunchCorrection): Promise<AiPunchCorrection>;
   updateAiCorrection(id: number, data: Partial<InsertAiPunchCorrection>): Promise<AiPunchCorrection | undefined>;
   getPendingCorrections(uploadId: number): Promise<AiPunchCorrection[]>;
+
+  // Departments
+  getDepartments(): Promise<Department[]>;
+  createDepartment(dept: InsertDepartment): Promise<Department>;
+
+  // Daily Attendance
+  getDailyAttendance(periodId: number, employeeId?: number): Promise<DailyAttendance[]>;
+  upsertDailyAttendance(record: InsertDailyAttendance): Promise<DailyAttendance>;
+  bulkInsertDailyAttendance(records: InsertDailyAttendance[]): Promise<void>;
+  deleteDailyAttendanceByPeriod(periodId: number): Promise<void>;
+  updateDailyAttendanceStatus(id: number, status: string, notes?: string): Promise<DailyAttendance | undefined>;
+
+  // Prim Rules
+  getPrimRules(): Promise<PrimRule[]>;
+  createPrimRule(rule: InsertPrimRule): Promise<PrimRule>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -549,6 +567,72 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(aiPunchCorrections).where(
       and(eq(aiPunchCorrections.uploadId, uploadId), sql`${aiPunchCorrections.approved} IS NULL`)
     );
+  }
+
+  // ===== DEPARTMENTS =====
+  async getDepartments(): Promise<Department[]> {
+    return db.select().from(departments).where(eq(departments.active, true));
+  }
+
+  async createDepartment(dept: InsertDepartment): Promise<Department> {
+    const result = await db.insert(departments).values(dept).returning();
+    return result[0];
+  }
+
+  // ===== DAILY ATTENDANCE =====
+  async getDailyAttendance(periodId: number, employeeId?: number): Promise<DailyAttendance[]> {
+    if (employeeId) {
+      return db.select().from(dailyAttendance).where(
+        and(eq(dailyAttendance.periodId, periodId), eq(dailyAttendance.employeeId, employeeId))
+      );
+    }
+    return db.select().from(dailyAttendance).where(eq(dailyAttendance.periodId, periodId));
+  }
+
+  async upsertDailyAttendance(record: InsertDailyAttendance): Promise<DailyAttendance> {
+    // Var olan kaydı bul
+    const existing = await db.select().from(dailyAttendance).where(
+      and(
+        eq(dailyAttendance.periodId, record.periodId),
+        eq(dailyAttendance.employeeId, record.employeeId),
+        eq(dailyAttendance.day, record.day)
+      )
+    );
+    if (existing.length > 0) {
+      const result = await db.update(dailyAttendance).set(record).where(eq(dailyAttendance.id, existing[0].id)).returning();
+      return result[0];
+    }
+    const result = await db.insert(dailyAttendance).values(record).returning();
+    return result[0];
+  }
+
+  async bulkInsertDailyAttendance(records: InsertDailyAttendance[]): Promise<void> {
+    if (records.length === 0) return;
+    const batchSize = 200;
+    for (let i = 0; i < records.length; i += batchSize) {
+      await db.insert(dailyAttendance).values(records.slice(i, i + batchSize));
+    }
+  }
+
+  async deleteDailyAttendanceByPeriod(periodId: number): Promise<void> {
+    await db.delete(dailyAttendance).where(eq(dailyAttendance.periodId, periodId));
+  }
+
+  async updateDailyAttendanceStatus(id: number, status: string, notes?: string): Promise<DailyAttendance | undefined> {
+    const data: any = { status, source: "manual" };
+    if (notes !== undefined) data.notes = notes;
+    const result = await db.update(dailyAttendance).set(data).where(eq(dailyAttendance.id, id)).returning();
+    return result[0];
+  }
+
+  // ===== PRIM RULES =====
+  async getPrimRules(): Promise<PrimRule[]> {
+    return db.select().from(primRules).where(eq(primRules.active, true));
+  }
+
+  async createPrimRule(rule: InsertPrimRule): Promise<PrimRule> {
+    const result = await db.insert(primRules).values(rule).returning();
+    return result[0];
   }
 
   async initDefaults(): Promise<void> {
