@@ -214,6 +214,7 @@ export const payrollPeriods = pgTable("payroll_periods", {
   salaryDivisor: integer("salary_divisor").default(30),
   status: text("status").default("draft"), // draft | calculated | reviewed | approved | locked
   uploadId: integer("upload_id"),
+  periodSettings: text("period_settings"), // JSON: PeriodSettings (kurallar, toleranslar, çarpanlar)
   createdAt: timestamp("created_at").defaultNow(),
   calculatedAt: timestamp("calculated_at"),
   approvedAt: timestamp("approved_at"),
@@ -234,13 +235,15 @@ export const payrollRecords = pgTable("payroll_records", {
   workedDays: integer("worked_days").default(0),
   offDays: integer("off_days").default(0),
   deficitDays: integer("deficit_days").default(0),
-  overtimeDaysHoliday: real("overtime_days_holiday").default(0), // 0.5 gün destekli
-  fmMinutes: integer("fm_minutes").default(0), // fazla mesai dakika
+  penaltyDays: integer("penalty_days").default(0),          // kesinti uygulanan gün (+1 varsa)
+  overtimeDaysHoliday: real("overtime_days_holiday").default(0),
+  fmMinutes: integer("fm_minutes").default(0),
   // 🟡 Manuel
   unpaidLeaveDays: integer("unpaid_leave_days").default(0),
   sickLeaveDays: integer("sick_leave_days").default(0),
   mealAllowance: integer("meal_allowance").default(0),
-  // Hesaplanan
+  // Maaş (kişi bazlı override destekli)
+  customTotalSalary: integer("custom_total_salary"),         // null ise pozisyon maaşı kullanılır
   totalSalary: integer("total_salary").default(0),
   baseSalary: integer("base_salary").default(0),
   kasaPrim: integer("kasa_prim").default(0),
@@ -248,13 +251,13 @@ export const payrollRecords = pgTable("payroll_records", {
   dailyRate: real("daily_rate").default(0),
   dayDeduction: real("day_deduction").default(0),
   primDeduction: real("prim_deduction").default(0),
-  overtimeAmount: real("overtime_amount").default(0),
+  overtimeAmount: real("overtime_amount").default(0),        // tatil/bayram mesai tutarı
   fmAmount: real("fm_amount").default(0),
   mealAmount: integer("meal_amount").default(0),
   netPayment: real("net_payment").default(0),
   // AI
-  aiCorrections: text("ai_corrections"), // JSON: AI'ın yaptığı düzeltmeler
-  aiConfidence: real("ai_confidence"), // 0-100 güven skoru
+  aiCorrections: text("ai_corrections"),
+  aiConfidence: real("ai_confidence"),
   aiNotes: text("ai_notes"),
   // Meta
   manuallyAdjusted: boolean("manually_adjusted").default(false),

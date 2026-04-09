@@ -1,87 +1,218 @@
 /**
- * DOSPRESSO Maaş Hesaplama Motoru
+ * DOSPRESSO Maaş Hesaplama Motoru v2
  * 
- * Formüller (Lara_Sube_Maas Excel'inden):
- * - Günlük Ücret = Toplam Maaş ÷ 30 (sabit bölen)
- * - Gün Kesinti = Eksik Gün × Günlük Ücret
- * - Prim Kesinti = (Eksik Gün / Devam Takip Günü) × Toplam Prim
- * - FM Tutarı = FM Dakika × (Günlük Ücret ÷ 450) × 1.5
- * - Mesai Gün Tutarı = Mesai Gün (Bayram/Tatil) × Günlük Ücret × 2
- * - NET ÖDEME = Toplam Maaş - Gün Kesinti - Prim Kesinti + FM Tutarı + Mesai Gün Tutarı + Yemek Bedeli
+ * TEMEL KURALLAR:
+ * - Günlük brüt süre: 8.5 saat (şubede kalma)
+ * - Mola: 1 saat (mesaiden SAYILMAZ)
+ * - Günlük net çalışma: 7.5 saat = 450 dakika
+ * - Haftalık: 6 gün × 7.5 saat = 45 saat
+ * 
+ * FORMÜLLER (Excel'den birebir):
+ * - Günlük Ücret = Toplam Maaş ÷ Bölen (varsayılan 30)
+ * - FM saatlik ücret = Günlük Ücret ÷ 8 (Varsayımlar: Aylık saat = Gün × 8)
+ * - FM Tutarı = FM_dakika × (Günlük_Ücret / 480) × 1.5
+ * - Mesai Gün Tutarı = Mesai_Gün × Günlük_Ücret × Çarpan
+ * - Gün Kesinti = Eksik_Gün × Günlük_Ücret (opsiyonel +1 ceza)
+ * - Yemek Bedeli = Çalışılan Gün × Günlük Yemek Ücreti (pozisyona göre)
+ * - NET = Toplam Maaş - Gün Kesinti - Prim Kesinti + FM Tutarı + Mesai Tutarı + Yemek
  */
 
-import type { Position, EmployeeSummary } from "@shared/schema";
+// ===== DÖNEM AYARLARI =====
+export interface PeriodSettings {
+  // Temel
+  salaryDivisor: number;          // Günlük ücret böleni (varsayılan: 30)
+  trackingDays: number;           // Devam takip günü (ayın iş günü sayısı)
+  
+  // Çalışma saatleri
+  dailyGrossHours: number;        // Şubede kalma süresi (varsayılan: 8.5)
+  dailyBreakMinutes: number;      // Mola süresi dk (varsayılan: 60)
+  dailyNetMinutes: number;        // Net çalışma dk (varsayılan: 450 = 7.5 saat)
+  weeklyNetHours: number;         // Haftalık net saat (varsayılan: 45)
+  workDaysPerWeek: number;        // Haftalık iş günü (varsayılan: 6)
+  
+  // FM (Fazla Mesai)
+  fmCalcBasis: number;            // FM hesap bazı saat (varsayılan: 8, Varsayımlar'dan)
+  fmMultiplier: number;           // FM çarpanı (varsayılan: 1.5)
+  fmDailyMinThreshold: number;    // Günlük minimum FM eşiği dk (varsayılan: 30)
+  
+  // Mesai (Tatil/Bayram)
+  holidayMultiplier: number;      // Tatil mesai çarpanı (varsayılan: 1, Excel gerçeği)
+  
+  // Kesinti
+  deficitPenaltyPlusOne: boolean; // Eksik gün +1 ceza kuralı (varsayılan: false)
+  autoPrimDeduction: boolean;     // Otomatik prim kesintisi (varsayılan: false)
+  
+  // Toleranslar
+  lateToleranceMinutes: number;   // Geç kalma toleransı dk (varsayılan: 0)
+  earlyLeaveToleranceMinutes: number; // Erken çıkış toleransı dk (varsayılan: 0)
+  breakOverTolerance: number;     // Mola aşım toleransı dk (varsayılan: 5)
+  
+  // Yemek
+  mealAllowancePerDay: number;    // Günlük yemek bedeli ₺ (varsayılan: 330)
+  mealAllowancePositions: string[]; // Yemek bedeli alan pozisyonlar (varsayılan: ["Stajyer"])
+}
 
-export interface SalaryInput {
-  // Personel bilgileri
-  employeeId: number;
+export const DEFAULT_PERIOD_SETTINGS: PeriodSettings = {
+  salaryDivisor: 30,
+  trackingDays: 30,
+  dailyGrossHours: 8.5,
+  dailyBreakMinutes: 60,
+  dailyNetMinutes: 450,
+  weeklyNetHours: 45,
+  workDaysPerWeek: 6,
+  fmCalcBasis: 8,
+  fmMultiplier: 1.5,
+  fmDailyMinThreshold: 30,
+  holidayMultiplier: 1,
+  deficitPenaltyPlusOne: false,
+  autoPrimDeduction: false,
+  lateToleranceMinutes: 0,
+  earlyLeaveToleranceMinutes: 0,
+  breakOverTolerance: 5,
+  mealAllowancePerDay: 330,
+  mealAllowancePositions: ["Stajyer"],
+};
+
+// ===== PERSONEL GİRDİSİ =====
+export interface PayrollInput {
   employeeName: string;
   positionName: string;
   
-  // Pozisyon maaş bilgileri
-  totalSalary: number;     // Toplam Maaş (ör: 41000)
-  baseSalary: number;      // Taban Maaş (ör: 31000)
-  kasaPrim: number;        // Kasa Primi (ör: 3500)
-  performansPrim: number;  // Performans Primi (ör: 6500)
-  
-  // Dönem bilgileri
-  salaryDivisor: number;   // Günlük Ücret Böleni (varsayılan: 30)
-  trackingDays: number;    // Devam Takip Günü (ayın toplam çalışma günü)
+  // Maaş (kişi bazlı override destekli)
+  totalSalary: number;
+  baseSalary: number;
+  kasaPrim: number;
+  performansPrim: number;
   
   // 🔵 Otomatik (PDKS'den)
-  workedDays: number;      // Çalışılan Gün
-  offDays: number;         // Off Gün
-  fmMinutes: number;       // Fazla Mesai Dakika (30dk üstü)
-  overtimeDaysHoliday: number; // Mesai Gün (Bayram/Tatil)
+  workedDays: number;
+  offDays: number;
+  fmMinutes: number;           // toplam FM dakika (30dk+ günlerin toplamı)
+  holidayWorkedDays: number;   // tatil/bayram çalışılan gün (ondalıklı: 3.5)
   
   // 🟡 Manuel
-  unpaidLeaveDays: number; // Ücretsiz İzin Gün
-  sickLeaveDays: number;   // Raporlu Gün
-  mealAllowance: number;   // Yemek Bedeli
+  unpaidLeaveDays: number;
+  sickLeaveDays: number;
+  manualMealAllowance?: number; // manuel yemek bedeli (override)
+  manualPrimDeduction?: number; // manuel prim kesintisi
 }
 
-export interface SalaryResult {
-  // Hesaplanan değerler
-  dailyRate: number;         // Günlük Ücret
-  deficitDays: number;       // Eksik Gün
-  dayDeduction: number;      // Gün Kesinti tutarı
-  primDeduction: number;     // Prim Kesinti tutarı
-  overtimeAmount: number;    // Mesai Gün Tutarı (Bayram/Tatil)
-  fmAmount: number;          // FM Tutarı
-  mealAmount: number;        // Yemek Bedeli
-  netPayment: number;        // NET ÖDEME
+// ===== HESAPLAMA SONUCU =====
+export interface PayrollResult {
+  dailyRate: number;
+  deficitDays: number;
+  penaltyDays: number;         // kesinti uygulanan gün (+1 varsa)
+  dayDeduction: number;
+  primDeduction: number;
+  fmAmount: number;
+  holidayAmount: number;
+  mealAllowance: number;
+  netPayment: number;
   
   // Detay
-  totalPrim: number;         // Toplam Prim
-  hourlyRate: number;        // Saatlik Ücret (FM hesabı için)
+  fmHourlyRate: number;
+  totalPrim: number;
+  grossBeforeDeductions: number;
 }
 
-/**
- * Eksik gün hesabı
- * Eksik Gün = Devam Takip Günü - Çalışılan Gün - Off Gün - Ücretsiz İzin - Raporlu Gün
- */
-function calculateDeficitDays(input: SalaryInput): number {
-  const deficit = input.trackingDays - input.workedDays - input.offDays - input.unpaidLeaveDays - input.sickLeaveDays;
-  return Math.max(0, deficit);
+// ===== ANA HESAPLAMA =====
+export function calculatePayroll(
+  input: PayrollInput,
+  settings: PeriodSettings
+): PayrollResult {
+  const totalPrim = input.kasaPrim + input.performansPrim;
+  
+  // 1. Günlük Ücret = Toplam Maaş ÷ Bölen
+  const dailyRate = input.totalSalary / settings.salaryDivisor;
+  
+  // 2. Eksik Gün = Takip Günü - Çalışılan - Off - Ücretsiz İzin - Rapor
+  const deficitDays = Math.max(0,
+    settings.trackingDays - input.workedDays - input.offDays 
+    - input.unpaidLeaveDays - input.sickLeaveDays
+  );
+  
+  // 3. Kesinti Günü (opsiyonel +1 ceza)
+  const penaltyDays = deficitDays > 0 && settings.deficitPenaltyPlusOne
+    ? deficitDays + 1
+    : deficitDays;
+  
+  // 4. Gün Kesinti = Kesinti Günü × Günlük Ücret
+  const dayDeduction = penaltyDays * dailyRate;
+  
+  // 5. Prim Kesinti (varsayılan: 0, manuel veya oran bazlı)
+  let primDeduction = 0;
+  if (input.manualPrimDeduction !== undefined && input.manualPrimDeduction > 0) {
+    primDeduction = input.manualPrimDeduction;
+  } else if (settings.autoPrimDeduction && deficitDays > 0 && settings.trackingDays > 0) {
+    primDeduction = (deficitDays / settings.trackingDays) * totalPrim;
+  }
+  
+  // 6. FM Saatlik Ücret = Günlük Ücret ÷ FM Hesap Bazı (8 saat)
+  //    FM Dakika Ücret = FM Saatlik ÷ 60
+  //    FM Tutarı = FM_dakika × FM_dakika_ücret × Çarpan (1.5)
+  const fmHourlyRate = dailyRate / settings.fmCalcBasis;
+  const fmMinuteRate = fmHourlyRate / 60;
+  const fmAmount = input.fmMinutes * fmMinuteRate * settings.fmMultiplier;
+  
+  // 7. Mesai Gün (Tatil/Bayram) Tutarı = Gün × Günlük Ücret × Çarpan
+  const holidayAmount = input.holidayWorkedDays * dailyRate * settings.holidayMultiplier;
+  
+  // 8. Yemek Bedeli
+  let mealAllowance = 0;
+  if (input.manualMealAllowance !== undefined) {
+    mealAllowance = input.manualMealAllowance;
+  } else if (settings.mealAllowancePositions.includes(input.positionName)) {
+    mealAllowance = input.workedDays * settings.mealAllowancePerDay;
+  }
+  
+  // 9. NET ÖDEME = Maaş - Gün Kesinti - Prim Kesinti + FM + Mesai + Yemek
+  const grossBeforeDeductions = input.totalSalary + fmAmount + holidayAmount + mealAllowance;
+  const netPayment = input.totalSalary - dayDeduction - primDeduction + fmAmount + holidayAmount + mealAllowance;
+  
+  return {
+    dailyRate: round2(dailyRate),
+    deficitDays,
+    penaltyDays,
+    dayDeduction: round2(dayDeduction),
+    primDeduction: round2(primDeduction),
+    fmAmount: round2(fmAmount),
+    holidayAmount: round2(holidayAmount),
+    mealAllowance: round2(mealAllowance),
+    netPayment: round2(netPayment),
+    fmHourlyRate: round2(fmHourlyRate),
+    totalPrim,
+    grossBeforeDeductions: round2(grossBeforeDeductions),
+  };
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// ===== FM DAKİKA HESABI (PDKS'den) =====
 /**
- * FM (Fazla Mesai) Dakika hesabı
- * PDKS verilerinden günlük net çalışma > 480dk (8 saat) olan günlerdeki
- * fazla dakika toplamı. 30dk altı günlük FM sayılmaz.
+ * Günlük raporlardan toplam FM dakikasını hesaplar.
+ * Kural: Günlük net çalışma > dailyNetMinutes ise fark FM.
+ * Günlük FM < fmDailyMinThreshold ise o gün sayılmaz.
  */
-export function calculateFMMinutes(dailyReports: EmployeeSummary["dailyReports"]): number {
+export function calculateFMFromDailyReports(
+  dailyReports: Array<{
+    netWorkMinutes: number;
+    isOffDay: boolean;
+    isOnLeave: boolean;
+    isHoliday: boolean;
+    punchCount: number;
+  }>,
+  settings: PeriodSettings
+): number {
   let totalFM = 0;
   
   for (const day of dailyReports) {
     if (day.isOffDay || day.isOnLeave || day.isHoliday) continue;
     if (day.punchCount < 2) continue;
     
-    // Net çalışma 480dk (8 saat) üstündeki kısım
-    const dailyFM = day.netWorkMinutes - 480;
-    
-    // Günlük 30dk altı FM sayılmaz
-    if (dailyFM >= 30) {
+    const dailyFM = day.netWorkMinutes - settings.dailyNetMinutes;
+    if (dailyFM >= settings.fmDailyMinThreshold) {
       totalFM += dailyFM;
     }
   }
@@ -89,108 +220,70 @@ export function calculateFMMinutes(dailyReports: EmployeeSummary["dailyReports"]
   return Math.round(totalFM);
 }
 
-/**
- * Mesai Gün (Bayram/Tatil) hesabı
- * Tatil günlerinde çalışılan saat / 8 = gün (0.5 gün destekli)
- */
-export function calculateOvertimeDaysHoliday(dailyReports: EmployeeSummary["dailyReports"]): number {
-  let totalHolidayWork = 0;
+// ===== TATİL MESAİ GÜN HESABI =====
+export function calculateHolidayWorkedDays(
+  dailyReports: Array<{
+    netWorkMinutes: number;
+    isHoliday: boolean;
+    punchCount: number;
+  }>,
+  settings: PeriodSettings
+): number {
+  let total = 0;
   
   for (const day of dailyReports) {
     if (!day.isHoliday || day.punchCount < 2) continue;
-    
-    // Çalışma saati / 8 = gün (yarım gün destekli, 0.5'e yuvarla)
+    // Çalışma saati / 8 = gün (0.5 adımla yuvarla)
     const hoursWorked = day.netWorkMinutes / 60;
-    const daysWorked = Math.round(hoursWorked / 8 * 2) / 2; // 0.5 adımla yuvarla
-    totalHolidayWork += daysWorked;
+    const daysWorked = Math.round(hoursWorked / settings.fmCalcBasis * 2) / 2;
+    total += daysWorked;
   }
   
-  return totalHolidayWork;
+  return total;
 }
 
+// ===== EXCEL DOĞRULAMA =====
 /**
- * Ana maaş hesaplama fonksiyonu
+ * Mart 2026 verileriyle formül doğrulaması
  */
-export function calculateSalary(input: SalaryInput): SalaryResult {
-  const totalPrim = input.kasaPrim + input.performansPrim;
+export function validateFormulas(): string[] {
+  const results: string[] = [];
+  const settings: PeriodSettings = { ...DEFAULT_PERIOD_SETTINGS, trackingDays: 30 };
   
-  // Günlük Ücret = Toplam Maaş ÷ Bölen (varsayılan 30)
-  const dailyRate = input.totalSalary / input.salaryDivisor;
+  // Test: Eren Demir (Barista, 41K, 27 gün, 4 off, 3.5 mesai, 550 FM dk)
+  const eren = calculatePayroll({
+    employeeName: "EREN DEMİR", positionName: "Barista",
+    totalSalary: 41000, baseSalary: 31000, kasaPrim: 3500, performansPrim: 6500,
+    workedDays: 27, offDays: 4, fmMinutes: 550, holidayWorkedDays: 3.5,
+    unpaidLeaveDays: 0, sickLeaveDays: 0,
+  }, settings);
   
-  // Eksik Gün
-  const deficitDays = calculateDeficitDays(input);
+  results.push(`Eren Günlük: ${eren.dailyRate} (beklenen: 1366.67) ${Math.abs(eren.dailyRate - 1366.67) < 1 ? "✅" : "❌"}`);
+  results.push(`Eren FM: ${eren.fmAmount} (beklenen: 2348.96) ${Math.abs(eren.fmAmount - 2348.96) < 1 ? "✅" : "❌"}`);
+  results.push(`Eren Mesai: ${eren.holidayAmount} (beklenen: 4783.33) ${Math.abs(eren.holidayAmount - 4783.33) < 1 ? "✅" : "❌"}`);
+  results.push(`Eren Net: ${eren.netPayment} (beklenen: 48132.29) ${Math.abs(eren.netPayment - 48132.29) < 1 ? "✅" : "❌"}`);
   
-  // Gün Kesinti = Eksik Gün × Günlük Ücret
-  const dayDeduction = deficitDays * dailyRate;
+  // Test: Berkan Bozdağ (Bar Buddy, 36K, 25 gün, 4 off, 1 eksik)
+  const berkan = calculatePayroll({
+    employeeName: "BERKAN BOZDAĞ", positionName: "Bar Buddy",
+    totalSalary: 36000, baseSalary: 31000, kasaPrim: 3500, performansPrim: 1500,
+    workedDays: 25, offDays: 4, fmMinutes: 105, holidayWorkedDays: 2.5,
+    unpaidLeaveDays: 0, sickLeaveDays: 0,
+  }, settings);
   
-  // Prim Kesinti = (Eksik Gün / Devam Takip Günü) × Toplam Prim
-  // NOT: Eksik gün yoksa prim kesintisi yok
-  const primDeduction = deficitDays > 0 && input.trackingDays > 0
-    ? (deficitDays / input.trackingDays) * totalPrim
-    : 0;
+  results.push(`Berkan Kesinti: ${berkan.dayDeduction} (beklenen: 1200) ${Math.abs(berkan.dayDeduction - 1200) < 1 ? "✅" : "❌"}`);
+  results.push(`Berkan Net: ${berkan.netPayment} (beklenen: 38193.75) ${Math.abs(berkan.netPayment - 38193.75) < 1 ? "✅" : "❌"}`);
   
-  // Saatlik Ücret (FM hesabı için) = Günlük Ücret ÷ 7.5 saat
-  const hourlyRate = dailyRate / 7.5;
+  // Test: Stajyer yemek bedeli (Yağız, 33K, 2 gün)
+  const yagiz = calculatePayroll({
+    employeeName: "YAĞIZ TÖRER", positionName: "Stajyer",
+    totalSalary: 33000, baseSalary: 31000, kasaPrim: 3500, performansPrim: 0,
+    workedDays: 2, offDays: 0, fmMinutes: 0, holidayWorkedDays: 0,
+    unpaidLeaveDays: 0, sickLeaveDays: 0,
+  }, settings);
   
-  // FM Tutarı = FM Dakika × (Saatlik Ücret / 60) × 1.5
-  const fmAmount = input.fmMinutes > 0
-    ? input.fmMinutes * (hourlyRate / 60) * 1.5
-    : 0;
+  results.push(`Yağız Yemek: ${yagiz.mealAllowance} (beklenen: 660) ${Math.abs(yagiz.mealAllowance - 660) < 1 ? "✅" : "❌"}`);
+  results.push(`Yağız Net: ${yagiz.netPayment} (beklenen: 2860) ${Math.abs(yagiz.netPayment - 2860) < 1 ? "✅" : "❌"}`);
   
-  // Mesai Gün Tutarı = Mesai Gün × Günlük Ücret × 2
-  const overtimeAmount = input.overtimeDaysHoliday * dailyRate * 2;
-  
-  // Yemek Bedeli
-  const mealAmount = input.mealAllowance || 0;
-  
-  // NET ÖDEME = Toplam Maaş - Gün Kesinti - Prim Kesinti + FM Tutarı + Mesai Gün Tutarı + Yemek Bedeli
-  const netPayment = input.totalSalary - dayDeduction - primDeduction + fmAmount + overtimeAmount + mealAmount;
-  
-  return {
-    dailyRate: Math.round(dailyRate * 100) / 100,
-    deficitDays,
-    dayDeduction: Math.round(dayDeduction * 100) / 100,
-    primDeduction: Math.round(primDeduction * 100) / 100,
-    overtimeAmount: Math.round(overtimeAmount * 100) / 100,
-    fmAmount: Math.round(fmAmount * 100) / 100,
-    mealAmount,
-    netPayment: Math.round(netPayment * 100) / 100,
-    totalPrim,
-    hourlyRate: Math.round(hourlyRate * 100) / 100,
-  };
-}
-
-/**
- * EmployeeSummary'den SalaryInput oluştur (otomatik alanları doldur)
- */
-export function buildSalaryInputFromSummary(
-  summary: EmployeeSummary,
-  position: Position | undefined,
-  trackingDays: number,
-  salaryDivisor: number = 30,
-  manualInputs?: { unpaidLeaveDays?: number; sickLeaveDays?: number; mealAllowance?: number }
-): SalaryInput {
-  const totalSalary = position?.totalSalary || 33000;
-  const baseSalary = position?.baseSalary || 31000;
-  const kasaPrim = position?.kasaPrim || 0;
-  const performansPrim = position?.performansPrim || 0;
-  
-  return {
-    employeeId: 0, // caller tarafından set edilecek
-    employeeName: summary.name,
-    positionName: position?.name || "Bilinmiyor",
-    totalSalary,
-    baseSalary,
-    kasaPrim,
-    performansPrim,
-    salaryDivisor,
-    trackingDays,
-    workedDays: summary.workDays,
-    offDays: summary.offDays,
-    fmMinutes: calculateFMMinutes(summary.dailyReports),
-    overtimeDaysHoliday: calculateOvertimeDaysHoliday(summary.dailyReports),
-    unpaidLeaveDays: manualInputs?.unpaidLeaveDays || 0,
-    sickLeaveDays: manualInputs?.sickLeaveDays || 0,
-    mealAllowance: manualInputs?.mealAllowance || 0,
-  };
+  return results;
 }

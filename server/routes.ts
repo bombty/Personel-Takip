@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { processAttendanceData } from "./processor";
 import { analyzeGeneralReport, analyzeEmployeeReport } from "./ai-analyzer";
 import { smartProcessPunches, aiPayrollAnalysis } from "./services/ai-smart-processor";
-import { calculateSalary, buildSalaryInputFromSummary, calculateFMMinutes, calculateOvertimeDaysHoliday } from "./services/salary-calculator";
+import { calculatePayroll, calculateFMFromDailyReports, calculateHolidayWorkedDays, DEFAULT_PERIOD_SETTINGS, type PeriodSettings, type PayrollInput } from "./services/salary-calculator";
 import { parseScheduleFile } from "./schedule-parser";
 import multer from "multer";
 import * as XLSX from "xlsx";
@@ -1362,6 +1362,7 @@ export async function registerRoutes(
         new Date(year, month, 0).getDate(); // ayın gün sayısı
 
       if (!period) {
+        const defaultSettings = { ...DEFAULT_PERIOD_SETTINGS, trackingDays };
         period = await storage.createPayrollPeriod({
           branchId,
           year,
@@ -1370,24 +1371,28 @@ export async function registerRoutes(
           salaryDivisor: 30,
           status: "calculated",
           uploadId: uploadRecord.id,
+          periodSettings: JSON.stringify(defaultSettings),
         });
       } else {
         await storage.deletePayrollRecordsByPeriod(period.id);
         await storage.updatePayrollPeriod(period.id, { status: "calculated", uploadId: uploadRecord.id });
       }
 
-      // 11. Her personel için maaş hesapla
+      // 11. Dönem ayarlarını belirle
+      const periodSettings: PeriodSettings = period.periodSettings
+        ? JSON.parse(period.periodSettings)
+        : { ...DEFAULT_PERIOD_SETTINGS, trackingDays };
+
+      // 12. Her personel için maaş hesapla
       const positions = await storage.getPositions();
       const payrollResults: any[] = [];
 
       for (const summary of summaries) {
-        // Personel eşleştirme
         const employee = allEmployees.find(e => e.enNo === summary.enNo);
         let position = employee?.positionId
           ? positions.find(p => p.id === employee.positionId)
           : undefined;
 
-        // Pozisyon bulunamazsa isimden tahmin et
         if (!position && employee?.position) {
           position = positions.find(p =>
             p.name.toLowerCase().includes(employee.position!.toLowerCase()) ||
@@ -1395,50 +1400,59 @@ export async function registerRoutes(
           );
         }
 
-        // FM ve tatil mesai hesabı
-        const fmMinutes = calculateFMMinutes(summary.dailyReports);
-        const overtimeDaysHoliday = calculateOvertimeDaysHoliday(summary.dailyReports);
+        // FM ve tatil mesai hesabı (PDKS'den)
+        const fmMinutes = calculateFMFromDailyReports(summary.dailyReports, periodSettings);
+        const holidayWorkedDays = calculateHolidayWorkedDays(summary.dailyReports, periodSettings);
 
-        const salaryInput = buildSalaryInputFromSummary(
-          summary,
-          position,
-          trackingDays,
-          30
-        );
-        salaryInput.fmMinutes = fmMinutes;
-        salaryInput.overtimeDaysHoliday = overtimeDaysHoliday;
+        // Kişi bazlı maaş (customTotalSalary override destekli)
+        const totalSalary = position?.totalSalary || 33000;
 
-        const salaryResult = calculateSalary(salaryInput);
+        const payrollInput: PayrollInput = {
+          employeeName: summary.name,
+          positionName: position?.name || "Bilinmiyor",
+          totalSalary,
+          baseSalary: position?.baseSalary || 31000,
+          kasaPrim: position?.kasaPrim || 0,
+          performansPrim: position?.performansPrim || 0,
+          workedDays: summary.workDays,
+          offDays: summary.offDays,
+          fmMinutes,
+          holidayWorkedDays,
+          unpaidLeaveDays: 0,
+          sickLeaveDays: 0,
+        };
 
-        // Personel düzeltmelerini bul
+        const result = calculatePayroll(payrollInput, periodSettings);
+
         const empCorrections = corrections.filter(c => c.enNo === summary.enNo);
 
-        // Payroll record kaydet
         const payrollRecord = await storage.createPayrollRecord({
           periodId: period.id,
           employeeId: employee?.id || 0,
           positionName: position?.name || "Bilinmiyor",
           workedDays: summary.workDays,
           offDays: summary.offDays,
-          deficitDays: salaryResult.deficitDays,
-          overtimeDaysHoliday,
+          deficitDays: result.deficitDays,
+          penaltyDays: result.penaltyDays,
+          overtimeDaysHoliday: holidayWorkedDays,
           fmMinutes,
-          totalSalary: position?.totalSalary || 33000,
+          totalSalary,
           baseSalary: position?.baseSalary || 31000,
           kasaPrim: position?.kasaPrim || 0,
           performansPrim: position?.performansPrim || 0,
-          dailyRate: salaryResult.dailyRate,
-          dayDeduction: salaryResult.dayDeduction,
-          primDeduction: salaryResult.primDeduction,
-          overtimeAmount: salaryResult.overtimeAmount,
-          fmAmount: salaryResult.fmAmount,
-          netPayment: salaryResult.netPayment,
+          dailyRate: result.dailyRate,
+          dayDeduction: result.dayDeduction,
+          primDeduction: result.primDeduction,
+          overtimeAmount: result.holidayAmount,
+          fmAmount: result.fmAmount,
+          mealAmount: result.mealAllowance,
+          netPayment: result.netPayment,
           aiCorrections: empCorrections.length > 0 ? JSON.stringify(empCorrections) : null,
           aiConfidence: empCorrections.length > 0
-            ? empCorrections.reduce((s, c) => s + c.confidence, 0) / empCorrections.length
+            ? empCorrections.reduce((s: number, c: any) => s + c.confidence, 0) / empCorrections.length
             : 100,
           aiNotes: empCorrections.length > 0
-            ? empCorrections.map(c => `${c.date}: ${c.reasoning}`).join("\n")
+            ? empCorrections.map((c: any) => `${c.date}: ${c.reasoning}`).join("\n")
             : null,
         });
 
@@ -1448,19 +1462,19 @@ export async function registerRoutes(
           position: position?.name || "Bilinmiyor",
           workedDays: summary.workDays,
           offDays: summary.offDays,
-          deficitDays: salaryResult.deficitDays,
-          overtimeDaysHoliday,
+          deficitDays: result.deficitDays,
+          overtimeDaysHoliday: holidayWorkedDays,
           fmMinutes,
-          totalSalary: position?.totalSalary || 33000,
-          dayDeduction: salaryResult.dayDeduction,
-          primDeduction: salaryResult.primDeduction,
-          fmAmount: salaryResult.fmAmount,
-          overtimeAmount: salaryResult.overtimeAmount,
-          mealAmount: 0,
-          netPayment: salaryResult.netPayment,
+          totalSalary,
+          dayDeduction: result.dayDeduction,
+          primDeduction: result.primDeduction,
+          fmAmount: result.fmAmount,
+          overtimeAmount: result.holidayAmount,
+          mealAmount: result.mealAllowance,
+          netPayment: result.netPayment,
           aiNotes: payrollRecord.aiNotes,
           aiConfidence: payrollRecord.aiConfidence,
-          corrections: empCorrections.map(c => ({
+          corrections: empCorrections.map((c: any) => ({
             date: c.date,
             type: c.correctionType,
             confidence: c.confidence,
@@ -1498,6 +1512,45 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("Payroll processing error:", err);
       res.status(500).json({ error: err.message || "İşleme hatası" });
+    }
+  });
+
+  // GET /api/payroll/settings/defaults - Varsayılan ayarları getir
+  app.get("/api/payroll/settings/defaults", requireAuth, async (_req, res) => {
+    res.json(DEFAULT_PERIOD_SETTINGS);
+  });
+
+  // GET /api/payroll/periods/:id/settings - Dönem ayarlarını getir
+  app.get("/api/payroll/periods/:id/settings", requireAuth, async (req, res) => {
+    try {
+      const period = await storage.getPayrollPeriodById(parseInt(req.params.id));
+      if (!period) return res.status(404).json({ error: "Dönem bulunamadı" });
+      const settings = period.periodSettings
+        ? JSON.parse(period.periodSettings)
+        : { ...DEFAULT_PERIOD_SETTINGS, trackingDays: period.workDays };
+      res.json(settings);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PUT /api/payroll/periods/:id/settings - Dönem ayarlarını güncelle
+  app.put("/api/payroll/periods/:id/settings", requireRole("yonetim"), async (req, res) => {
+    try {
+      const periodId = parseInt(req.params.id);
+      const period = await storage.getPayrollPeriodById(periodId);
+      if (!period) return res.status(404).json({ error: "Dönem bulunamadı" });
+      if (period.status === "locked") return res.status(400).json({ error: "Kilitli dönem düzenlenemez" });
+
+      const newSettings = { ...DEFAULT_PERIOD_SETTINGS, ...req.body };
+      await storage.updatePayrollPeriod(periodId, {
+        periodSettings: JSON.stringify(newSettings),
+        workDays: newSettings.trackingDays,
+        salaryDivisor: newSettings.salaryDivisor,
+      });
+      res.json(newSettings);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
