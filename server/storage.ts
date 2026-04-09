@@ -42,6 +42,7 @@ export interface IStorage {
   deleteEmployee(id: number): Promise<void>;
 
   createUpload(upload: InsertUpload): Promise<Upload>;
+  updateUpload(id: number, data: Partial<InsertUpload>): Promise<Upload | undefined>;
   getUploads(branchId?: number): Promise<Upload[]>;
   getUploadById(id: number): Promise<Upload | undefined>;
 
@@ -201,6 +202,11 @@ export class DatabaseStorage implements IStorage {
 
   async createUpload(upload: InsertUpload): Promise<Upload> {
     const result = await db.insert(uploads).values(upload).returning();
+    return result[0];
+  }
+
+  async updateUpload(id: number, data: Partial<InsertUpload>): Promise<Upload | undefined> {
+    const result = await db.update(uploads).set(data).where(eq(uploads.id, id)).returning();
     return result[0];
   }
 

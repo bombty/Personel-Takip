@@ -1202,7 +1202,7 @@ export async function registerRoutes(
   });
 
   // POST /api/payroll/process - Excel yükle, AI ile işle, maaş hesapla
-  app.post("/api/payroll/process", requireAuth, upload.single("file"), async (req, res) => {
+  app.post("/api/payroll/process", requireRole("yonetim"), upload.single("file"), async (req, res) => {
     try {
       const branchId = parseInt(req.body.branchId);
       if (!branchId) return res.status(400).json({ error: "Şube seçilmeli" });
@@ -1285,6 +1285,53 @@ export async function registerRoutes(
           reasoning: corr.reasoning,
           approved: corr.confidence >= 70 ? true : null, // yüksek güvenli → otomatik onayla
         });
+      }
+
+      // 7.5 AI düzeltmelerini kayıtlara uygula (yüksek güvenli olanları)
+      const approvedCorrections = corrections.filter(c => c.confidence >= 70);
+      for (const corr of approvedCorrections) {
+        // Düzeltilen gün için mevcut kayıtları bul
+        const datePrefix = corr.date; // "2026-03-15" formatında
+        const existingRecords = records.filter(r =>
+          r.enNo === corr.enNo && String(r.dateTime).startsWith(datePrefix)
+        );
+
+        if (corr.correctionType === "missing_exit" && corr.correctedPunches.length === 2) {
+          // Eksik çıkış → tahmini çıkış saatini ekle
+          const [hours, mins] = corr.correctedPunches[1].split(":").map(Number);
+          const exitDate = new Date(datePrefix + "T00:00:00");
+          exitDate.setHours(hours, mins, 0);
+          records.push({
+            uploadId: uploadRecord.id,
+            enNo: corr.enNo,
+            name: corr.name,
+            dateTime: exitDate,
+            tmNo: null, gmNo: null, mode: null, inOut: "AI", antipass: null, proxyWork: null,
+          });
+        }
+
+        if ((corr.correctionType === "missing_break_in" || corr.correctionType === "missing_break_out")
+            && corr.correctedPunches.length === 4) {
+          // Eksik mola okutması → tahmini mola zamanını ekle
+          // correctedPunches tam 4 elemanlı, eksik olan eklenmeli
+          const existingTimes = existingRecords.map(r => new Date(r.dateTime).getTime());
+          for (const punchStr of corr.correctedPunches) {
+            const [h, m] = punchStr.split(":").map(Number);
+            const punchDate = new Date(datePrefix + "T00:00:00");
+            punchDate.setHours(h, m, 0);
+            // Bu zaman zaten var mı?
+            const exists = existingTimes.some(t => Math.abs(t - punchDate.getTime()) < 120000); // 2dk tolerans
+            if (!exists) {
+              records.push({
+                uploadId: uploadRecord.id,
+                enNo: corr.enNo,
+                name: corr.name,
+                dateTime: punchDate,
+                tmNo: null, gmNo: null, mode: null, inOut: "AI", antipass: null, proxyWork: null,
+              });
+            }
+          }
+        }
       }
 
       // 8. Mevcut processor ile hesaplama
@@ -1434,12 +1481,10 @@ export async function registerRoutes(
       await storage.updatePayrollPeriod(period.id, { aiAnalysis });
 
       // Upload durumunu güncelle
-      await storage.createUpload({
-        fileName: file.originalname,
+      await storage.updateUpload(uploadRecord.id, {
         totalRecords: records.length,
         totalEmployees: summaries.length,
         status: "completed",
-        branchId,
       });
 
       res.json({
